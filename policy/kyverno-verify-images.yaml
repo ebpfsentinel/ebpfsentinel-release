@@ -1,0 +1,50 @@
+# Kyverno ClusterPolicy: only admit eBPFsentinel images that carry a valid
+# cosign keyless signature produced by this org's release signing workflow.
+#
+# A tampered image has a different digest, for which no signature exists
+# under our identity -> admission is rejected. `mutateDigest: true` also
+# rewrites tags to the verified digest, so deployments become immutable.
+#
+# Install:  kubectl apply -f kyverno-verify-images.yaml   (requires Kyverno)
+#
+# NOTE on identity: sign-image.yml runs as a *reusable* workflow, so Sigstore
+# records the reusable workflow ref as the certificate identity (the subject
+# below). The issuer never changes.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: ebpfsentinel-verify-images
+  annotations:
+    policies.kyverno.io/title: Verify eBPFsentinel image signatures
+    policies.kyverno.io/category: Supply Chain Security
+    policies.kyverno.io/description: >-
+      Requires a cosign keyless signature from the ebpfsentinel-release
+      signing workflow on every ebpfsentinel image before it can run.
+spec:
+  validationFailureAction: Enforce
+  background: false
+  webhookTimeoutSeconds: 30
+  failurePolicy: Fail
+  rules:
+    - name: verify-ebpfsentinel-signatures
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      verifyImages:
+        - imageReferences:
+            - "ghcr.io/ebpfsentinel/ebpfsentinel"
+            - "ghcr.io/ebpfsentinel/ebpfsentinel:*"
+            - "ghcr.io/ebpfsentinel/ebpfsentinel-*"
+          mutateDigest: true
+          verifyDigest: true
+          required: true
+          attestors:
+            - count: 1
+              entries:
+                - keyless:
+                    subject: "https://github.com/ebpfsentinel/ebpfsentinel-release/.github/workflows/sign-image.yml@refs/tags/*"
+                    issuer: "https://token.actions.githubusercontent.com"
+                    rekor:
+                      url: https://rekor.sigstore.dev

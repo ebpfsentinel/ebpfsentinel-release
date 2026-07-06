@@ -1,0 +1,210 @@
+# Issue a signed release-measurements manifest: an inventory of the known-good
+# sha256 of the published binaries and OCI digests of the published images for
+# a release. Runs AFTER every component release is published.
+#
+# It assembles `measurements.json`, DUAL-SIGNS it (Ed25519 + ML-DSA-65) with
+# this repo's signing keys, additionally cosign-keyless signs it (transparency
+# log), and attaches everything to a GitHub Release here.
+#
+# Required repository secrets:
+#   LICENSE_SIGNING_KEY_ED25519  Ed25519 signing private key (file content)
+#   LICENSE_SIGNING_KEY_MLDSA    ML-DSA-65 signing private key seed (file content)
+#   RELEASE_READ_TOKEN           read-only token for private release assets
+name: issue-measurements
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Release version to measure, e.g. 2026.6.1"
+        required: true
+        type: string
+      images:
+        description: "Newline list of image refs (no tag) to pin at :<release>"
+        required: false
+        default: |
+          ghcr.io/ebpfsentinel/ebpfsentinel
+          ghcr.io/ebpfsentinel/ebpfsentinel-enterprise
+          ghcr.io/ebpfsentinel/ebpfsentinel-operator
+          ghcr.io/ebpfsentinel/ebpfsentinel-dashboard
+        type: string
+
+permissions: {}
+
+env:
+  ORG: ebpfsentinel
+
+jobs:
+  # -- Assemble + dual-sign the manifest ----------------------------------
+  issue:
+    name: Assemble & dual-sign
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Validate release format
+        env:
+          REL: ${{ inputs.release }}
+        run: |
+          if ! echo "$REL" | grep -qE '^[0-9]{4}\.[1-9][0-9]?\.[0-9]+$'; then
+            echo "::error::release must be YYYY.M.X, got: $REL"
+            exit 1
+          fi
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Install crane
+        uses: imjasonh/setup-crane@v0.4
+
+      # Download the enterprise release tarballs (private repo → PAT). They
+      # ship both the enterprise agent and the ebpfsentinel-license binary,
+      # so no source build is needed here.
+      - name: Download enterprise release assets
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_READ_TOKEN }}
+          REL: ${{ inputs.release }}
+        run: |
+          mkdir -p dl
+          gh release download "v${REL}" \
+            --repo "${ORG}/ebpfsentinel-enterprise" \
+            --pattern 'ebpfsentinel-enterprise-*-linux-*.tar.gz' \
+            --dir dl
+
+      - name: Download OSS release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REL: ${{ inputs.release }}
+        run: |
+          gh release download "v${REL}" \
+            --repo "${ORG}/ebpfsentinel" \
+            --pattern 'ebpfsentinel-*-linux-*.tar.gz' \
+            --dir dl
+
+      # Extract the license tool (amd64 runner) once, for signing.
+      - name: Stage license tool
+        env:
+          REL: ${{ inputs.release }}
+        run: |
+          tar xzf "dl/ebpfsentinel-enterprise-${REL}-linux-amd64.tar.gz" -C dl
+          install -m 0755 \
+            "dl/ebpfsentinel-enterprise-${REL}-linux-amd64/ebpfsentinel-license" \
+            ./ebpfsentinel-license
+          ./ebpfsentinel-license --help >/dev/null
+
+      - name: Assemble measurements.json
+        env:
+          REL: ${{ inputs.release }}
+          IMAGES: ${{ inputs.images }}
+        run: |
+          set -euo pipefail
+          ART=""
+          add() { # name kind digest
+            ART="${ART:+$ART,}$(jq -nc --arg n "$1" --arg k "$2" --arg d "$3" \
+              '{name:$n,kind:$k,digest:$d}')"
+          }
+
+          # --- Binaries: sha256 of the extracted executables, per arch -----
+          bin_sha() { # tarball innerdir binname
+            local tb="$1" dir="$2" bn="$3"
+            tar xzf "dl/$tb" -C dl 2>/dev/null || true
+            sha256sum "dl/$dir/$bn" | awk '{print $1}'
+          }
+          for arch in amd64 arm64; do
+            ent_tb="ebpfsentinel-enterprise-${REL}-linux-${arch}.tar.gz"
+            ent_dir="ebpfsentinel-enterprise-${REL}-linux-${arch}"
+            oss_tb="ebpfsentinel-${REL}-linux-${arch}.tar.gz"
+            oss_dir="ebpfsentinel-${REL}-linux-${arch}"
+            add "ebpfsentinel-enterprise-agent-${arch}" binary \
+              "$(bin_sha "$ent_tb" "$ent_dir" ebpfsentinel-enterprise-agent)"
+            add "ebpfsentinel-agent-${arch}" binary \
+              "$(bin_sha "$oss_tb" "$oss_dir" ebpfsentinel-agent)"
+          done
+
+          # --- Images: pin the multi-arch index digest at :<release> -------
+          while IFS= read -r img; do
+            img="$(echo "$img" | xargs)"
+            [ -z "$img" ] && continue
+            dig="$(crane digest "${img}:${REL}")"
+            add "$img" image "$dig"
+          done <<< "$IMAGES"
+
+          jq -n \
+            --arg schema "ebpfsentinel.measurements/v1" \
+            --arg release "$REL" \
+            --arg issued "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --argjson artifacts "[$ART]" \
+            '{schema:$schema,release:$release,issued_at:$issued,artifacts:$artifacts}' \
+            > measurements.json
+          echo "----- measurements.json -----"
+          cat measurements.json
+
+      # Materialize the signing keys from secrets, dual-sign, then wipe.
+      - name: Dual-sign manifest
+        env:
+          ED_KEY: ${{ secrets.LICENSE_SIGNING_KEY_ED25519 }}
+          ML_KEY: ${{ secrets.LICENSE_SIGNING_KEY_MLDSA }}
+        run: |
+          printf '%s' "$ED_KEY" > ed25519.key
+          printf '%s' "$ML_KEY" > mldsa.key
+          ./ebpfsentinel-license sign-manifest \
+            --input measurements.json \
+            --signing-key ed25519.key \
+            --pq-signing-key mldsa.key \
+            --output measurements.signed
+          shred -u ed25519.key mldsa.key
+          echo "----- signed envelope (3 lines) -----"
+          wc -l measurements.signed
+
+      - name: Bundle manifest for signing
+        run: |
+          mkdir -p out
+          cp measurements.json measurements.signed out/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: measurements
+          path: out/
+          retention-days: 30
+
+  # -- cosign-keyless sign the manifest (transparency log) ----------------
+  sign-blobs:
+    name: Sign manifest (keyless)
+    needs: [issue]
+    permissions:
+      id-token: write
+      contents: read
+      attestations: write
+    uses: ebpfsentinel/ebpfsentinel-release/.github/workflows/sign-blob.yml@v1
+    with:
+      artifact-name: measurements
+
+  # -- Publish the signed manifest as a Release here ----------------------
+  publish:
+    name: Publish manifest
+    needs: [issue, sign-blobs]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v4
+        with:
+          name: measurements
+          path: pub
+      - uses: actions/download-artifact@v4
+        with:
+          name: measurements-signatures
+          path: pub
+      # Ship the customer verification helpers alongside the signed manifest.
+      - name: Stage verification helpers
+        run: cp policy/verify.sh policy/cosign-public.md pub/
+      - name: Create / update measurements release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REL: ${{ inputs.release }}
+        run: |
+          TAG="measurements/v${REL}"
+          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$TAG" pub/* \
+            --title "Measurements ${REL}" \
+            --notes "Dual-signed (Ed25519 + ML-DSA-65) release measurements for ${REL}. Verify: ./verify.sh sums SHA256SUMS SHA256SUMS.sig SHA256SUMS.crt then ebpfsentinel-license verify-manifest. See docs/CONSUMER-ENFORCEMENT.md."

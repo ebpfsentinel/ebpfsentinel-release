@@ -1,0 +1,33 @@
+# OPTIONAL alternative to policy/kyverno-verify-images.yaml, for clusters that
+# already run the Sigstore Policy Controller instead of Kyverno. Same guarantee:
+# only eBPFsentinel images carrying a valid cosign keyless signature from this
+# org's release signing workflow are admitted; a tampered image has a different
+# digest, for which no signature exists under our identity -> denied.
+#
+# Prereqs:
+#   1. Install the Sigstore Policy Controller
+#      (https://docs.sigstore.dev/policy-controller/installation/).
+#   2. Opt each workload namespace in:
+#      kubectl label namespace <ns> policy.sigstore.dev/include=true
+#   3. kubectl apply -f policy-controller-clusterimagepolicy.yaml
+#
+# Pick ONE admission enforcer — do not run this together with the Kyverno
+# policy, or images get verified twice.
+apiVersion: policy.sigstore.dev/v1beta1
+kind: ClusterImagePolicy
+metadata:
+  name: ebpfsentinel-verify-images
+spec:
+  # Matches ghcr.io/ebpfsentinel/ebpfsentinel and every ebpfsentinel-* image.
+  images:
+    - glob: "ghcr.io/ebpfsentinel/ebpfsentinel**"
+  authorities:
+    - keyless:
+        url: https://fulcio.sigstore.dev
+        identities:
+          - issuer: https://token.actions.githubusercontent.com
+            subjectRegExp: "^https://github.com/ebpfsentinel/ebpfsentinel-release/.github/workflows/sign-image.yml@refs/tags/v.*$"
+        ctlog:
+          url: https://rekor.sigstore.dev
+  # Rewrite admitted references to their verified digest (immutable pods).
+  mode: enforce

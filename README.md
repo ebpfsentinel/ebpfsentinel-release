@@ -37,7 +37,7 @@ jobs:
 - Kubernetes: apply [`policy/kyverno-verify-images.yaml`](policy/kyverno-verify-images.yaml), or the cosign-native [`policy/policy-controller-clusterimagepolicy.yaml`](policy/policy-controller-clusterimagepolicy.yaml) (pick one).
 - Bare metal: [`policy/verify.sh`](policy/verify.sh) (also shipped with each `measurements/v*` release; `OFFLINE=1` for air-gapped sites).
 - License delivery (per-customer Secret): [`policy/license-external-secret.yaml`](policy/license-external-secret.yaml).
-- Full runbook (admission + GitOps digest-pin + license + measurement gate): [`docs/CONSUMER-ENFORCEMENT.md`](docs/CONSUMER-ENFORCEMENT.md).
+- Full runbook (admission + GitOps digest-pin + license + air-gap): [`docs/CONSUMER-ENFORCEMENT.md`](docs/CONSUMER-ENFORCEMENT.md).
 - Acceptance (tamper is inert at every layer): [`policy/acceptance-tamper-test.sh`](policy/acceptance-tamper-test.sh) / [`.github/workflows/acceptance.yml`](.github/workflows/acceptance.yml).
 
 Trust anchor: cosign keyless, issuer `token.actions.githubusercontent.com`,

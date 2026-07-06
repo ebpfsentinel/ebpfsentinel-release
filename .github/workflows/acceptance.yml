@@ -1,0 +1,107 @@
+# Acceptance — prove a modified artifact is inert at every layer.
+#
+# Runs the tamper test (policy/acceptance-tamper-test.sh) for the cosign
+# signature layer (a) and the signed-measurements layer (c), and a
+# kind + Kyverno check for the admission layer (b). Each job PASSES only when
+# tamper is correctly REJECTED.
+#
+# Manual, on-demand: needs a published, signed release to point at. Provide a
+# genuine signed image@digest; the manifest is fetched from the matching
+# measurements release.
+name: acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: "Genuine signed image ref with digest, e.g. ghcr.io/ebpfsentinel/ebpfsentinel@sha256:..."
+        required: true
+        type: string
+      release:
+        description: "Release version whose measurements manifest to test, e.g. 2026.6.1"
+        required: false
+        type: string
+
+permissions: {}
+
+env:
+  ORG: ebpfsentinel
+
+jobs:
+  # -- (a) + (c): cosign signature + signed measurements manifest ----------
+  signatures:
+    name: Signature & manifest tamper
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Fetch signed measurements manifest
+        if: ${{ inputs.release != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REL: ${{ inputs.release }}
+        run: |
+          gh release download "measurements/v${REL}" \
+            -R "${ORG}/ebpfsentinel-release" \
+            -p 'measurements.signed*' -D man || echo "no measurements release yet"
+
+      - name: Run tamper test (a + c)
+        env:
+          IMAGE: ${{ inputs.image }}
+        run: |
+          chmod +x policy/acceptance-tamper-test.sh
+          args=(--image "$IMAGE")
+          if [ -f man/measurements.signed ]; then
+            args+=(--manifest man/measurements.signed)
+          fi
+          ./policy/acceptance-tamper-test.sh "${args[@]}"
+
+  # -- (b): Kyverno denies an unsigned image at admission ------------------
+  admission:
+    name: Kyverno admission
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+
+      - name: Install Kyverno
+        run: |
+          kubectl apply -f https://github.com/kyverno/kyverno/releases/latest/download/install.yaml
+          kubectl -n kyverno rollout status deploy/kyverno-admission-controller --timeout=180s
+
+      - name: Apply the image-verification policy
+        run: |
+          kubectl apply -f policy/kyverno-verify-images.yaml
+          # Give the policy a moment to register its webhook.
+          sleep 10
+
+      # A locally-built image tagged under our namespace has no signature in
+      # ghcr/rekor → Kyverno must DENY it. No registry push needed: the deny
+      # path only needs the signature lookup to come up empty.
+      - name: Build an unsigned in-scope image
+        run: |
+          printf 'FROM gcr.io/distroless/static:nonroot\n' > Dockerfile.rogue
+          docker build -f Dockerfile.rogue \
+            -t ghcr.io/ebpfsentinel/ebpfsentinel-acceptance-rogue:tampered .
+          kind load docker-image \
+            ghcr.io/ebpfsentinel/ebpfsentinel-acceptance-rogue:tampered \
+            --name chart-testing
+
+      - name: Assert the unsigned image is denied
+        run: |
+          if kubectl run rogue \
+              --image ghcr.io/ebpfsentinel/ebpfsentinel-acceptance-rogue:tampered \
+              --restart=Never; then
+            echo "::error::unsigned image was ADMITTED — policy not enforcing"
+            kubectl delete pod rogue --ignore-not-found
+            exit 1
+          fi
+          echo "PASS: unsigned in-scope image denied at admission"

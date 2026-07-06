@@ -1,0 +1,94 @@
+# Reusable workflow: cosign-keyless sign release binaries / tarballs and
+# emit a signed SHA256SUMS + GitHub build-provenance attestation.
+#
+# The caller uploads the files to sign as an artifact (same workflow run),
+# then calls this with `artifact-name`. This workflow downloads them, signs
+# each blob keyless, writes + signs SHA256SUMS, attaches provenance, and
+# re-uploads the signatures as `<artifact-name>-signatures` for the caller
+# to publish alongside the release assets.
+#
+# Trust anchor for verification (see policy/):
+#   issuer:   https://token.actions.githubusercontent.com
+#   identity: https://github.com/ebpfsentinel/ebpfsentinel-release/.github/workflows/sign-blob.yml@refs/tags/v*
+name: sign-blob
+
+on:
+  workflow_call:
+    inputs:
+      artifact-name:
+        description: "Name of the uploaded artifact holding the files to sign"
+        required: true
+        type: string
+      pattern:
+        description: "Glob of files to sign, relative to the artifact root"
+        required: false
+        default: "*"
+        type: string
+
+permissions: {}
+
+jobs:
+  sign:
+    name: Sign blobs
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # keyless OIDC + provenance attestation
+      contents: read
+      attestations: write
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: dist
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign blobs + checksums (keyless)
+        working-directory: dist
+        env:
+          PATTERN: ${{ inputs.pattern }}
+        run: |
+          shopt -s nullglob
+          # Snapshot the file list BEFORE creating SHA256SUMS / *.sig.
+          files=( $PATTERN )
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::no files matched pattern '$PATTERN'"
+            exit 1
+          fi
+          : > SHA256SUMS
+          for f in "${files[@]}"; do
+            [ -f "$f" ] || continue
+            echo "Signing $f"
+            # --bundle carries sig+cert+Rekor inclusion proof so the blob can
+            # be verified air-gapped (cosign verify-blob --offline --bundle).
+            cosign sign-blob --yes \
+              --output-signature "$f.sig" \
+              --output-certificate "$f.crt" \
+              --bundle "$f.bundle" \
+              "$f"
+            sha256sum "$f" >> SHA256SUMS
+          done
+          cat SHA256SUMS
+          cosign sign-blob --yes \
+            --output-signature SHA256SUMS.sig \
+            --output-certificate SHA256SUMS.crt \
+            --bundle SHA256SUMS.bundle \
+            SHA256SUMS
+
+      - name: Build-provenance attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/${{ inputs.pattern }}
+
+      - name: Upload signatures
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}-signatures
+          if-no-files-found: error
+          path: |
+            dist/*.sig
+            dist/*.crt
+            dist/*.bundle
+            dist/SHA256SUMS

@@ -1,0 +1,78 @@
+# Reusable workflow: cosign-keyless sign a pushed container image + attest SBOM.
+#
+# Called by every image-producing repo AFTER `docker/build-push-action`
+# (which must run with `provenance: true` so the SLSA build provenance is
+# already attached to the digest by BuildKit). This workflow adds the
+# cosign signature and an SPDX SBOM attestation, both keyless (Sigstore
+# Fulcio/Rekor) — no private key is stored anywhere.
+#
+# Trust anchor for verification (see policy/):
+#   issuer:   https://token.actions.githubusercontent.com
+#   identity: https://github.com/ebpfsentinel/ebpfsentinel-release/.github/workflows/sign-image.yml@refs/tags/v*
+name: sign-image
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: "Image ref WITHOUT tag, e.g. ghcr.io/ebpfsentinel/ebpfsentinel-dashboard"
+        required: true
+        type: string
+      digest:
+        description: "Image digest, e.g. sha256:abc123..."
+        required: true
+        type: string
+      sbom:
+        description: "Generate and attest an SPDX SBOM"
+        required: false
+        default: true
+        type: boolean
+
+permissions: {}
+
+jobs:
+  sign:
+    name: Sign & attest
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # keyless OIDC signing identity
+      packages: write # push signature + attestation to GHCR
+      contents: read
+    steps:
+      - name: Validate digest
+        env:
+          DIGEST: ${{ inputs.digest }}
+        run: |
+          if ! echo "$DIGEST" | grep -qE '^sha256:[0-9a-f]{64}$'; then
+            echo "::error::digest must be 'sha256:<64 hex>', got: $DIGEST"
+            exit 1
+          fi
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image (keyless)
+        env:
+          REF: ${{ inputs.image }}@${{ inputs.digest }}
+        run: cosign sign --yes "$REF"
+
+      - name: Generate SBOM (SPDX)
+        if: ${{ inputs.sbom }}
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ inputs.image }}@${{ inputs.digest }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+
+      - name: Attest SBOM (keyless)
+        if: ${{ inputs.sbom }}
+        env:
+          REF: ${{ inputs.image }}@${{ inputs.digest }}
+        run: cosign attest --yes --type spdxjson --predicate sbom.spdx.json "$REF"
