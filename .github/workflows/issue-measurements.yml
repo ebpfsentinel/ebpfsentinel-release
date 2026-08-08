@@ -2,14 +2,21 @@
 # sha256 of the published binaries and OCI digests of the published images for
 # a release. Runs AFTER every component release is published.
 #
+# What gets measured comes from `releases/<version>.yaml` — the release
+# coordination manifest — not from a list typed into this workflow. Seven
+# repositories ship as one product; declaring the set once means a component
+# cannot be silently missing from the signed inventory because nobody
+# remembered it.
+#
 # It assembles `measurements.json`, DUAL-SIGNS it (Ed25519 + ML-DSA-65) with
 # this repo's signing keys, additionally cosign-keyless signs it (transparency
-# log), and attaches everything to a GitHub Release here.
+# log), and attaches everything to a GitHub Release here — together with the
+# aggregated cross-repo changelog and the verified per-component SBOMs.
 #
 # Required repository secrets:
 #   RELEASE_SIGNING_KEY_ED25519  Ed25519 release signing private key (file content)
 #   RELEASE_SIGNING_KEY_MLDSA    ML-DSA-65 release signing private key seed (file content)
-#   RELEASE_READ_TOKEN           read-only token for private release assets
+#   RELEASE_READ_TOKEN           read-only token with access to every component repo
 #
 # These are RELEASE signing keys, distinct from the license signing keys. The
 # two sign different things for different audiences (what we shipped vs what a
@@ -22,17 +29,8 @@ on:
   workflow_dispatch:
     inputs:
       release:
-        description: "Release version to measure, e.g. 2026.6.1"
+        description: "Release version to measure, e.g. 2026.6.1 (must have releases/<version>.yaml)"
         required: true
-        type: string
-      images:
-        description: "Newline list of image refs (no tag) to pin at :<release>"
-        required: false
-        default: |
-          ghcr.io/ebpfsentinel/ebpfsentinel
-          ghcr.io/ebpfsentinel/ebpfsentinel-enterprise
-          ghcr.io/ebpfsentinel/ebpfsentinel-operator
-          ghcr.io/ebpfsentinel/ebpfsentinel-dashboard
         type: string
       reissue:
         description: "Replace an already-published measurements release (audited, requires a reason)"
@@ -57,7 +55,12 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      packages: read
     steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          path: repo
+
       - name: Validate release format
         env:
           REL: ${{ inputs.release }}
@@ -67,49 +70,76 @@ jobs:
             exit 1
           fi
 
+      # The manifest decides what this release contains. Without it there is
+      # nothing to measure, and guessing would defeat the purpose.
+      - name: Load the release coordination manifest
+        id: manifest
+        env:
+          REL: ${{ inputs.release }}
+        run: |
+          MANIFEST="repo/releases/${REL}.yaml"
+          if [ ! -f "$MANIFEST" ]; then
+            echo "::error::$MANIFEST not found — declare the release first (see releases/TEMPLATE.yaml)"
+            exit 1
+          fi
+          python3 repo/scripts/check-release-manifest.py "$MANIFEST"
+          status="$(python3 -c "import sys,yaml;print(yaml.safe_load(open(sys.argv[1]))['status'])" "$MANIFEST")"
+          if [ "$status" = "yanked" ]; then
+            echo "::error::release $REL is marked yanked — measuring it would publish evidence for something withdrawn"
+            exit 1
+          fi
+          python3 repo/scripts/check-release-manifest.py --images "$MANIFEST" > images.txt
+          python3 repo/scripts/check-release-manifest.py --binaries "$MANIFEST" > binaries.tsv
+          {
+            echo "manifest=$MANIFEST"
+            echo "status=$status"
+          } >> "$GITHUB_OUTPUT"
+          echo "images:"; cat images.txt
+          echo "binaries:"; cut -f1,3,4 binaries.tsv
+
       - name: Install cosign
         uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
       - name: Install crane
         uses: imjasonh/setup-crane@31b88efe9de28ae0ffa220711af4b60be9435f6e # v0.4
-      # Download the enterprise release tarballs (private repo → PAT). They
-      # ship both the enterprise agent and the ebpfsentinel-license binary,
-      # so no source build is needed here.
-      - name: Download enterprise release assets
+
+      # One read-only token for every component repo — some are private, and
+      # splitting tokens per repo bought nothing except a way to forget one.
+      - name: Download release tarballs
         env:
           GH_TOKEN: ${{ secrets.RELEASE_READ_TOKEN }}
-          REL: ${{ inputs.release }}
         run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::error::RELEASE_READ_TOKEN is not set — see docs/KEY-MANAGEMENT.md"
+            exit 1
+          fi
           mkdir -p dl
-          gh release download "v${REL}" \
-            --repo "${ORG}/ebpfsentinel-enterprise" \
-            --pattern 'ebpfsentinel-enterprise-*-linux-*.tar.gz' \
-            --dir dl
+          # Same tarball can carry several binaries; download each one once.
+          cut -f1,2,3 binaries.tsv | sort -u | while IFS=$'\t' read -r repo version tarball; do
+            echo "::group::$repo v$version $tarball"
+            gh release download "v${version}" --repo "$repo" --pattern "$tarball" --dir dl --clobber
+            echo "::endgroup::"
+          done
 
-      - name: Download OSS release assets
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REL: ${{ inputs.release }}
-        run: |
-          gh release download "v${REL}" \
-            --repo "${ORG}/ebpfsentinel" \
-            --pattern 'ebpfsentinel-*-linux-*.tar.gz' \
-            --dir dl
-
-      # Extract the license tool (amd64 runner) once, for signing.
       - name: Stage license tool
-        env:
-          REL: ${{ inputs.release }}
         run: |
-          tar xzf "dl/ebpfsentinel-enterprise-${REL}-linux-amd64.tar.gz" -C dl
-          install -m 0755 \
-            "dl/ebpfsentinel-enterprise-${REL}-linux-amd64/ebpfsentinel-license" \
-            ./ebpfsentinel-license
+          set -euo pipefail
+          # The signing tool ships inside the enterprise tarball; take the
+          # amd64 build, which is what this runner can execute.
+          row="$(awk -F'\t' '$4 == "ebpfsentinel-license" && $5 == "amd64"' binaries.tsv | head -1)"
+          if [ -z "$row" ]; then
+            echo "::error::the release manifest declares no ebpfsentinel-license binary for amd64"
+            exit 1
+          fi
+          tarball="$(printf '%s' "$row" | cut -f3)"
+          tar xzf "dl/${tarball}" -C dl
+          find dl -name ebpfsentinel-license -type f -print0 \
+            | head -z -n1 | xargs -0 -I{} install -m 0755 {} ./ebpfsentinel-license
           ./ebpfsentinel-license --help >/dev/null
 
       - name: Assemble measurements.json
         env:
           REL: ${{ inputs.release }}
-          IMAGES: ${{ inputs.images }}
         run: |
           set -euo pipefail
           ART=""
@@ -119,29 +149,22 @@ jobs:
           }
 
           # --- Binaries: sha256 of the extracted executables, per arch -----
-          bin_sha() { # tarball innerdir binname
-            local tb="$1" dir="$2" bn="$3"
-            tar xzf "dl/$tb" -C dl 2>/dev/null || true
-            sha256sum "dl/$dir/$bn" | awk '{print $1}'
-          }
-          for arch in amd64 arm64; do
-            ent_tb="ebpfsentinel-enterprise-${REL}-linux-${arch}.tar.gz"
-            ent_dir="ebpfsentinel-enterprise-${REL}-linux-${arch}"
-            oss_tb="ebpfsentinel-${REL}-linux-${arch}.tar.gz"
-            oss_dir="ebpfsentinel-${REL}-linux-${arch}"
-            add "ebpfsentinel-enterprise-agent-${arch}" binary \
-              "$(bin_sha "$ent_tb" "$ent_dir" ebpfsentinel-enterprise-agent)"
-            add "ebpfsentinel-agent-${arch}" binary \
-              "$(bin_sha "$oss_tb" "$oss_dir" ebpfsentinel-agent)"
-          done
+          while IFS=$'\t' read -r repo version tarball binname arch; do
+            [ -z "$tarball" ] && continue
+            tar xzf "dl/${tarball}" -C dl 2>/dev/null || true
+            path="$(find dl -type f -name "$binname" -path "*${arch}*" | head -1)"
+            if [ -z "$path" ]; then
+              echo "::error::${binname} (${arch}) not found in ${tarball}"
+              exit 1
+            fi
+            add "${binname}-${arch}" binary "$(sha256sum "$path" | awk '{print $1}')"
+          done < binaries.tsv
 
-          # --- Images: pin the multi-arch index digest at :<release> -------
+          # --- Images: pin the multi-arch index digest --------------------
           while IFS= read -r img; do
-            img="$(echo "$img" | xargs)"
             [ -z "$img" ] && continue
-            dig="$(crane digest "${img}:${REL}")"
-            add "$img" image "$dig"
-          done <<< "$IMAGES"
+            add "${img%:*}" image "$(crane digest "$img")"
+          done < images.txt
 
           jq -n \
             --arg schema "ebpfsentinel.measurements/v1" \
@@ -152,6 +175,92 @@ jobs:
             > measurements.json
           echo "----- measurements.json -----"
           cat measurements.json
+
+      # Aggregate the per-repo release notes into one document. Seven
+      # changelogs a customer has to find and stitch together themselves is a
+      # changelog nobody reads.
+      - name: Aggregate cross-repo changelog
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_READ_TOKEN }}
+          REL: ${{ inputs.release }}
+          MANIFEST: ${{ steps.manifest.outputs.manifest }}
+        run: |
+          set -euo pipefail
+          OUT="CHANGELOG-${REL}.md"
+          {
+            echo "# eBPFsentinel ${REL}"
+            echo
+            python3 - "$MANIFEST" <<'PY'
+          import sys, yaml
+          d = yaml.safe_load(open(sys.argv[1]))
+          c = d.get("compatibility", {})
+          print(f"Released {d['date']} — status: **{d['status']}**.")
+          if d.get("supersedes"):
+              print(f"Supersedes {d['supersedes']}.")
+          print()
+          print("| Component | Version | License |")
+          print("|---|---|---|")
+          for comp in d["components"]:
+              print(f"| {comp['name']} | {comp['version']} | {comp['license']} |")
+          print()
+          print(f"**Requires** kernel {c.get('kernel_min')}+, Kubernetes {c.get('kubernetes')}.")
+          if c.get("notes"):
+              print(f"\n{c['notes']}")
+          for key, title in (("breaking_changes", "Breaking changes"), ("highlights", "Highlights")):
+              items = d.get(key) or []
+              if items:
+                  print(f"\n## {title}\n")
+                  for it in items:
+                      print(f"- {it}")
+          PY
+            echo
+            echo "## Per-component release notes"
+            while IFS=$'\t' read -r repo version _; do
+              echo
+              echo "### ${repo} v${version}"
+              echo
+              if ! gh release view "v${version}" --repo "$repo" --json body -q .body 2>/dev/null; then
+                echo "_No release notes published._"
+              fi
+            done < <(python3 -c "
+          import sys, yaml
+          for c in yaml.safe_load(open(sys.argv[1]))['components']:
+              print(f\"{c['repo']}\t{c['version']}\")
+          " "$MANIFEST")
+          } > "$OUT"
+          echo "----- $OUT -----"
+          head -40 "$OUT"
+
+      # Collect each image's SBOM — verified against that component's own
+      # source repository, which the manifest is what tells us.
+      - name: Aggregate SBOMs
+        env:
+          MANIFEST: ${{ steps.manifest.outputs.manifest }}
+        run: |
+          set -euo pipefail
+          mkdir -p sboms
+          ID_RE='^https://github.com/ebpfsentinel/ebpfsentinel-release/.github/workflows/sign-image.yml@refs/tags/v.*$'
+          python3 -c "
+          import sys, yaml
+          for c in yaml.safe_load(open(sys.argv[1]))['components']:
+              if c.get('image'):
+                  print(f\"{c['name']}\t{c['image']}:{c['version']}\t{c['repo']}\")
+          " "$MANIFEST" | while IFS=$'\t' read -r name ref repo; do
+            digest="$(crane digest "$ref")"
+            if cosign verify-attestation --type spdxjson \
+                 --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+                 --certificate-identity-regexp "$ID_RE" \
+                 --certificate-github-workflow-repository "$repo" \
+                 "${ref%:*}@${digest}" 2>/dev/null \
+               | jq -r '.payload | @base64d | fromjson | .predicate' > "sboms/${name}.spdx.json"; then
+              echo "SBOM verified: $name ($repo)"
+            else
+              # Not fatal: a release predating SBOM attestation still deserves
+              # a measurements manifest. Recorded so the gap is visible.
+              echo "::warning::no verifiable SBOM attestation for ${name} from ${repo}"
+              rm -f "sboms/${name}.spdx.json"
+            fi
+          done
 
       # Materialize the signing keys from secrets, dual-sign, then wipe.
       - name: Dual-sign manifest
@@ -177,10 +286,6 @@ jobs:
       # Self-check with the published public keys: a manifest customers cannot
       # verify is worse than no manifest, so catch a key/secret mismatch here
       # rather than in a customer's air-gapped install.
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          path: repo
-
       - name: Verify manifest with the published public keys
         run: |
           ed=repo/policy/keys/release-signing-ed25519.pub
@@ -195,9 +300,19 @@ jobs:
             --pq-public-key "$ml"
 
       - name: Bundle manifest for signing
+        env:
+          REL: ${{ inputs.release }}
+          MANIFEST: ${{ steps.manifest.outputs.manifest }}
         run: |
           mkdir -p out
-          cp measurements.json measurements.signed out/
+          cp measurements.json measurements.signed "CHANGELOG-${REL}.md" out/
+          cp "$MANIFEST" "out/release-${REL}.yaml"
+          # The SBOMs travel inside the signed set, so the aggregate is covered
+          # by the same SHA256SUMS signature as everything else.
+          if [ -n "$(ls -A sboms 2>/dev/null)" ]; then
+            tar czf "out/sboms-${REL}.tar.gz" sboms
+          fi
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: measurements
@@ -283,6 +398,8 @@ jobs:
           NOTES="${NOTES} then ebpfsentinel-license verify-manifest --input measurements.signed"
           NOTES="${NOTES} --public-key release-signing-ed25519.pub --pq-public-key release-signing-mldsa.pub"
           NOTES="${NOTES} (both public keys are attached, so this works air-gapped)."
+          NOTES="${NOTES} Also attached: the release coordination manifest, the aggregated"
+          NOTES="${NOTES} cross-repo changelog, and the verified per-component SBOMs."
           NOTES="${NOTES} See docs/CONSUMER-ENFORCEMENT.md."
           if [ "$REISSUE" = "true" ]; then
             NOTES="${NOTES}"$'\n\n'"REISSUED — this manifest replaces an earlier one for the same release. Reason: ${REASON}"

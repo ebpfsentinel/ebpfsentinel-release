@@ -158,7 +158,30 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-echo "[8] workflows and policies are valid YAML"
+echo "[8] release coordination manifests are valid"
+# TEMPLATE.yaml is excluded: it is the thing you copy, not a declared release.
+rel_manifests="$(ls releases/*.yaml 2>/dev/null | grep -v '/TEMPLATE\.yaml$' || true)"
+if [ -n "$rel_manifests" ]; then
+  # shellcheck disable=SC2086
+  if python3 scripts/check-release-manifest.py $rel_manifests; then
+    ok "release manifests valid"
+  else
+    bad "invalid release manifest"
+  fi
+else
+  echo "  SKIP: no release manifests declared yet"
+fi
+if [ -f releases/TEMPLATE.yaml ]; then
+  # The template is what everyone copies; a broken one propagates.
+  if python3 -c "import yaml,sys; yaml.safe_load(open('releases/TEMPLATE.yaml'))" 2>/dev/null; then
+    ok "releases/TEMPLATE.yaml parses"
+  else
+    bad "releases/TEMPLATE.yaml does not parse"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+echo "[9] workflows and policies are valid YAML"
 python3 - <<'PY'
 import glob, sys, yaml
 bad = []
