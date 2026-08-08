@@ -7,6 +7,8 @@ repos.
 
 - **Consumer enforcement runbook**: [`docs/CONSUMER-ENFORCEMENT.md`](docs/CONSUMER-ENFORCEMENT.md)
 - **Consumer verification**: [`policy/cosign-public.md`](policy/cosign-public.md)
+- **Reporting a vulnerability**: [`SECURITY.md`](SECURITY.md)
+- **How this repo itself is protected**: [`docs/REPO-HARDENING.md`](docs/REPO-HARDENING.md)
 
 ## Reusable workflows
 
@@ -22,6 +24,7 @@ Operational workflows run from here, not from product repos:
 | [`.github/workflows/issue-measurements.yml`](.github/workflows/issue-measurements.yml) | dual-sign the release measurements manifest (append-only) |
 | [`.github/workflows/issue-revocations.yml`](.github/workflows/issue-revocations.yml) | publish the dual-signed revocation list |
 | [`.github/workflows/acceptance.yml`](.github/workflows/acceptance.yml) | prove tamper is rejected at every layer |
+| [`.github/workflows/guard.yml`](.github/workflows/guard.yml) | fail the PR when a repo invariant drifts ([`scripts/guard.sh`](scripts/guard.sh)) |
 
 Product repos call these after their build step, e.g.:
 

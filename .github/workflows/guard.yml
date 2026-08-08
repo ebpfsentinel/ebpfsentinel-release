@@ -1,0 +1,30 @@
+# Self-checks for the trust anchor.
+#
+# This repo's whole value is that its contents are trustworthy. These checks
+# fail the PR when an invariant drifts — an unpinned action, an allowlist that
+# no longer matches the verification side, a key file where none belongs.
+name: guard
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  guard:
+    name: Repo invariants
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Install PyYAML
+        run: python3 -m pip install --quiet pyyaml
+
+      - name: Run guard
+        run: ./scripts/guard.sh

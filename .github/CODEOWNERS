@@ -1,0 +1,13 @@
+# Everything here is trust-anchor material: workflows that hold the signing
+# identity, policies customers enforce with, and the revocation list. Every
+# change needs review from the release owners.
+#
+# Enforce with a branch protection rule on `main` that requires review from
+# Code Owners — CODEOWNERS alone only requests reviewers, it does not block.
+
+*                               @MaximeWewer
+
+.github/workflows/             @MaximeWewer
+policy/                        @MaximeWewer
+policy/keys/                   @MaximeWewer
+scripts/                       @MaximeWewer
