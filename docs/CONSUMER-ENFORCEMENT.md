@@ -8,6 +8,7 @@ against evidence the attacker does not control:
 |---|---|---|
 | Registry signature (cosign keyless + Rekor) | image/binary is authentic | anyone, offline-capable (`verify.sh`) |
 | Cluster admission (Kyverno `verifyImages`) | only signed digests run in k8s | the customer's cluster |
+| Revocation list (dual-signed, monotonic serial) | withdrawn digests stop running | `check-revocation.sh`, Kyverno deny policy |
 
 Break the artifact anywhere → its digest changes → no signature exists for
 the new digest under our identity → **admission rejects it**. The single
@@ -67,7 +68,31 @@ Use `policy/verify.sh` (ships with each release) to verify images, tarballs,
 and the `SHA256SUMS` before install. See `policy/cosign-public.md` for the
 raw cosign / `gh attestation verify` commands.
 
-## 5. Air-gapped / disconnected sites
+## 5. Revocation
+
+A signature never expires and never changes its mind. When an artifact is
+withdrawn — a critical defect, a compromised build — the signature on it stays
+valid, so signature checking alone will keep admitting it. Poll the signed
+list and enforce it:
+
+```bash
+gh release download revocations/current -R ebpfsentinel/ebpfsentinel-release -D rev
+./verify.sh sums rev/SHA256SUMS rev/SHA256SUMS.sig rev/SHA256SUMS.crt
+./check-revocation.sh rev/revocations.json sha256:<digest>      # exit 3 = revoked
+
+# Kubernetes: apply next to kyverno-verify-images.yaml
+./gen-revocation-policy.sh rev/revocations.json > kyverno-deny-revoked.yaml
+kubectl apply -f kyverno-deny-revoked.yaml
+```
+
+`verify.sh` checks the list too when you point it at one:
+`REVOCATIONS=rev/revocations.json ./verify.sh image <ref@sha256:...>`.
+
+The list carries a monotonic `serial`; reject any list whose serial is lower
+than one you have already seen, or an adversary can replay an older, shorter
+list at you. Full procedure in [`REVOCATION.md`](REVOCATION.md).
+
+## 6. Air-gapped / disconnected sites
 
 Keyless verification normally calls the public Sigstore transparency log
 (Rekor) at verify time. Two options when the site has no route to it:

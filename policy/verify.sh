@@ -49,8 +49,25 @@ env:
                    e.g. SOURCE_REPO=${ORG}/ebpfsentinel. Unset accepts any
                    eBPFsentinel product repository.
   OFFLINE=1        air-gapped verification (no Rekor network call)
+  REVOCATIONS=...  path to a verified revocations.json; the digest is also
+                   checked against it (see docs/REVOCATION.md)
 EOF
   exit 2
+}
+
+# A valid signature does not mean an artifact is still fit to run — that is
+# what the revocation list is for. Checked only when the caller supplies one,
+# because silently skipping it would be worse than not offering it.
+check_revoked() {
+  local digest="$1"
+  [ -n "${REVOCATIONS:-}" ] || return 0
+  local checker
+  checker="$(dirname "$0")/check-revocation.sh"
+  if [ ! -x "$checker" ]; then
+    echo "ERROR: REVOCATIONS is set but $checker is missing or not executable" >&2
+    return 1
+  fi
+  "$checker" "$REVOCATIONS" "$digest"
 }
 
 # Run a cosign verify subcommand once per candidate source repository and
@@ -83,6 +100,10 @@ case "$cmd" in
   image)
     [ "$#" -eq 1 ] || usage
     try_repos verify "$1"
+    case "$1" in
+      *@sha256:*) check_revoked "${1##*@}" ;;
+      *) echo "note: reference is not digest-pinned, revocation not checked" >&2 ;;
+    esac
     ;;
   blob | sums)
     [ "$#" -eq 3 ] || usage

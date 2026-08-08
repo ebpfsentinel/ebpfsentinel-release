@@ -1,0 +1,198 @@
+# Publish the signed revocation list.
+#
+# A signature says "we published this" and never stops saying it. This is the
+# separate channel that says "stop running it": a dual-signed (Ed25519 +
+# ML-DSA-65) list of withdrawn digests, published at a stable pointer that
+# consumers poll.
+#
+# `revocations/current` is deliberately mutable — a revocation list that could
+# not be updated would be useless. Immutability lives in the per-serial tags
+# and in the monotonic `serial`, which lets a consumer detect a replayed older
+# list. See docs/REVOCATION.md.
+#
+# Required repository secrets: RELEASE_SIGNING_KEY_ED25519,
+# RELEASE_SIGNING_KEY_MLDSA, RELEASE_READ_TOKEN (see docs/KEY-MANAGEMENT.md).
+name: issue-revocations
+
+on:
+  workflow_dispatch:
+    inputs:
+      license-tool-release:
+        description: "Enterprise release whose ebpfsentinel-license tool signs the list, e.g. 2026.6.1"
+        required: true
+        type: string
+
+permissions: {}
+
+env:
+  ORG: ebpfsentinel
+
+jobs:
+  issue:
+    name: Validate & dual-sign
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      serial: ${{ steps.validate.outputs.serial }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Validate the list
+        id: validate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          LIST=policy/revocations.json
+          schema="$(jq -r '.schema // empty' "$LIST")"
+          if [ "$schema" != "ebpfsentinel.revocations/v1" ]; then
+            echo "::error::unexpected schema '$schema'"
+            exit 1
+          fi
+          serial="$(jq -r '.serial // empty' "$LIST")"
+          if ! printf '%s' "$serial" | grep -qE '^[0-9]+$'; then
+            echo "::error::serial must be a non-negative integer"
+            exit 1
+          fi
+
+          # Every entry must carry enough for a consumer to act on it. An entry
+          # without an advisory gets ignored or worked around in the field.
+          bad="$(jq -r '
+            .revocations[]
+            | select(
+                (.kind | IN("image","binary") | not)
+                or (.digest // "" | test("^sha256:[0-9a-f]{64}$") | not)
+                or ((.name // "") == "") or ((.release // "") == "")
+                or ((.reason // "") == "") or ((.advisory // "") == "")
+                or ((.revoked_at // "") == "")
+              )
+            | .digest // "<no digest>"' "$LIST")"
+          if [ -n "$bad" ]; then
+            echo "::error::incomplete revocation entries: $bad"
+            exit 1
+          fi
+
+          # Monotonic serial: a published list must never be replaceable by an
+          # older one, or replay protection on the consumer side is pointless.
+          prev=0
+          if gh release download revocations/current -R "${ORG}/ebpfsentinel-release" \
+               -p 'revocations.json' -D prev 2>/dev/null; then
+            prev="$(jq -r '.serial // 0' prev/revocations.json)"
+          fi
+          if [ "$serial" -le "$prev" ]; then
+            echo "::error::serial $serial does not advance past the published serial $prev"
+            exit 1
+          fi
+          echo "serial=$serial" >> "$GITHUB_OUTPUT"
+          echo "publishing serial $serial (previous: $prev)"
+
+      - name: Download the license tool
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_READ_TOKEN }}
+          REL: ${{ inputs.license-tool-release }}
+        run: |
+          gh release download "v${REL}" \
+            --repo "${ORG}/ebpfsentinel-enterprise" \
+            --pattern "ebpfsentinel-enterprise-${REL}-linux-amd64.tar.gz" \
+            --dir dl
+          tar xzf "dl/ebpfsentinel-enterprise-${REL}-linux-amd64.tar.gz" -C dl
+          install -m 0755 \
+            "dl/ebpfsentinel-enterprise-${REL}-linux-amd64/ebpfsentinel-license" \
+            ./ebpfsentinel-license
+
+      - name: Dual-sign the list
+        env:
+          ED_KEY: ${{ secrets.RELEASE_SIGNING_KEY_ED25519 }}
+          ML_KEY: ${{ secrets.RELEASE_SIGNING_KEY_MLDSA }}
+        run: |
+          if [ -z "$ED_KEY" ] || [ -z "$ML_KEY" ]; then
+            echo "::error::release signing secrets are not set — see docs/KEY-MANAGEMENT.md"
+            exit 1
+          fi
+          printf '%s' "$ED_KEY" > ed25519.key
+          printf '%s' "$ML_KEY" > mldsa.key
+          ./ebpfsentinel-license sign-manifest \
+            --input policy/revocations.json \
+            --signing-key ed25519.key \
+            --pq-signing-key mldsa.key \
+            --output revocations.signed
+          shred -u ed25519.key mldsa.key
+          ./ebpfsentinel-license verify-manifest \
+            --input revocations.signed \
+            --public-key policy/keys/release-signing-ed25519.pub \
+            --pq-public-key policy/keys/release-signing-mldsa.pub
+
+      - name: Bundle for signing
+        run: |
+          mkdir -p out
+          cp policy/revocations.json revocations.signed out/
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: revocations
+          path: out/
+          retention-days: 30
+
+  sign-blobs:
+    name: Sign list (keyless)
+    needs: [issue]
+    permissions:
+      id-token: write
+      contents: read
+      attestations: write
+    uses: ebpfsentinel/ebpfsentinel-release/.github/workflows/sign-blob.yml@v1
+    with:
+      artifact-name: revocations
+
+  publish:
+    name: Publish list
+    needs: [issue, sign-blobs]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: revocations
+          path: pub
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: revocations-signatures
+          path: pub
+
+      - name: Stage consumer helpers
+        run: |
+          cp policy/verify.sh policy/check-revocation.sh \
+             policy/gen-revocation-policy.sh pub/
+          cp policy/keys/release-signing-ed25519.pub \
+             policy/keys/release-signing-mldsa.pub pub/
+
+      # Immutable per-serial release: the audit trail. Published first, so a
+      # failure here never leaves `current` pointing at something unrecorded.
+      - name: Publish serial release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SERIAL: ${{ needs.issue.outputs.serial }}
+        run: |
+          TAG="revocations/v${SERIAL}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::$TAG already exists — serials are append-only"
+            exit 1
+          fi
+          gh release create "$TAG" pub/* \
+            --title "Revocations serial ${SERIAL}" \
+            --notes "Dual-signed revocation list, serial ${SERIAL}. Immutable snapshot; consumers should poll the revocations/current pointer. See docs/REVOCATION.md."
+
+      # Mutable pointer: what consumers actually poll.
+      - name: Update the current pointer
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SERIAL: ${{ needs.issue.outputs.serial }}
+        run: |
+          gh release delete revocations/current --yes --cleanup-tag 2>/dev/null || true
+          gh release create revocations/current pub/* \
+            --title "Revocations (current)" \
+            --notes "Current dual-signed revocation list, serial ${SERIAL}. This pointer is replaced on every update; the immutable snapshot is revocations/v${SERIAL}. Reject any list whose serial is lower than one you have already seen. See docs/REVOCATION.md."

@@ -1,0 +1,6 @@
+{
+  "schema": "ebpfsentinel.revocations/v1",
+  "serial": 1,
+  "updated_at": "2026-08-08T00:00:00Z",
+  "revocations": []
+}

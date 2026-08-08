@@ -15,6 +15,14 @@ repos.
 | [`.github/workflows/sign-image.yml`](.github/workflows/sign-image.yml) | cosign-keyless sign a pushed container image + attest SPDX SBOM |
 | [`.github/workflows/sign-blob.yml`](.github/workflows/sign-blob.yml) | cosign-keyless sign release binaries/tarballs + signed `SHA256SUMS` + build provenance |
 
+Operational workflows run from here, not from product repos:
+
+| Workflow | Purpose |
+|---|---|
+| [`.github/workflows/issue-measurements.yml`](.github/workflows/issue-measurements.yml) | dual-sign the release measurements manifest (append-only) |
+| [`.github/workflows/issue-revocations.yml`](.github/workflows/issue-revocations.yml) | publish the dual-signed revocation list |
+| [`.github/workflows/acceptance.yml`](.github/workflows/acceptance.yml) | prove tamper is rejected at every layer |
+
 Product repos call these after their build step, e.g.:
 
 ```yaml
@@ -38,6 +46,8 @@ jobs:
 - Bare metal: [`policy/verify.sh`](policy/verify.sh) (also shipped with each `measurements/v*` release; `OFFLINE=1` for air-gapped sites).
 - License delivery (per-customer Secret): [`policy/license-external-secret.yaml`](policy/license-external-secret.yaml).
 - Full runbook (admission + GitOps digest-pin + license + air-gap): [`docs/CONSUMER-ENFORCEMENT.md`](docs/CONSUMER-ENFORCEMENT.md).
+- Revocation (a valid signature is not a promise the artifact is still fit to run): [`policy/check-revocation.sh`](policy/check-revocation.sh), [`policy/gen-revocation-policy.sh`](policy/gen-revocation-policy.sh), [`docs/REVOCATION.md`](docs/REVOCATION.md).
+- Signing keys and rotation: [`docs/KEY-MANAGEMENT.md`](docs/KEY-MANAGEMENT.md).
 - Acceptance (tamper is inert at every layer): [`policy/acceptance-tamper-test.sh`](policy/acceptance-tamper-test.sh) / [`.github/workflows/acceptance.yml`](.github/workflows/acceptance.yml).
 
 Trust anchor: cosign keyless, issuer `token.actions.githubusercontent.com`,
