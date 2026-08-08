@@ -70,6 +70,26 @@ jobs:
           fi
           echo "caller authorized: $CALLER"
 
+      # Both inputs come from a caller workflow and flow into shell globbing,
+      # an artifact name and an action input. Constrain them to an inert
+      # charset here rather than reasoning about each use site.
+      - name: Validate inputs
+        env:
+          ARTIFACT: ${{ inputs.artifact-name }}
+          PATTERN: ${{ inputs.pattern }}
+        run: |
+          if ! printf '%s' "$ARTIFACT" | grep -qE '^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$'; then
+            echo "::error::artifact-name must match ^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\$, got: $ARTIFACT"
+            exit 1
+          fi
+          if ! printf '%s' "$PATTERN" | grep -qE '^[A-Za-z0-9._*?/-]{1,200}$'; then
+            echo "::error::pattern may only contain [A-Za-z0-9._*?/-], got: $PATTERN"
+            exit 1
+          fi
+          case "$PATTERN" in
+            */../* | ../* | */..) echo "::error::pattern must not traverse upwards"; exit 1 ;;
+          esac
+
       - name: Download artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -79,13 +99,16 @@ jobs:
       - name: Install cosign
         uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
       - name: Sign blobs + checksums (keyless)
+        id: sign
         working-directory: dist
         env:
           PATTERN: ${{ inputs.pattern }}
         run: |
-          shopt -s nullglob
+          # `compgen -G` expands the pattern as ONE word, so a release asset
+          # whose name contains a space stays a single entry instead of being
+          # word-split into two nonexistent paths.
           # Snapshot the file list BEFORE creating SHA256SUMS / *.sig.
-          files=( $PATTERN )
+          mapfile -t files < <(compgen -G "$PATTERN" || true)
           if [ ${#files[@]} -eq 0 ]; then
             echo "::error::no files matched pattern '$PATTERN'"
             exit 1
@@ -93,6 +116,9 @@ jobs:
           : > SHA256SUMS
           for f in "${files[@]}"; do
             [ -f "$f" ] || continue
+            case "$f" in
+              *$'\n'*) echo "::error::refusing to sign a filename containing a newline: $f"; exit 1 ;;
+            esac
             echo "Signing $f"
             # --bundle carries sig+cert+Rekor inclusion proof so the blob can
             # be verified air-gapped (cosign verify-blob --offline --bundle).
@@ -110,10 +136,20 @@ jobs:
             --bundle SHA256SUMS.bundle \
             SHA256SUMS
 
+          # Hand the attestation step the exact files we signed rather than
+          # re-expanding the caller's pattern, which by now would also sweep up
+          # the .sig/.crt/.bundle files this step just created.
+          {
+            echo "subjects<<SUBJECTS_EOF"
+            for f in "${files[@]}"; do printf 'dist/%s\n' "$f"; done
+            echo "dist/SHA256SUMS"
+            echo "SUBJECTS_EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build-provenance attestation
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         with:
-          subject-path: dist/${{ inputs.pattern }}
+          subject-path: ${{ steps.sign.outputs.subjects }}
 
       - name: Upload signatures
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
