@@ -131,8 +131,9 @@ spec:
                         ignoreSCT: false
               conditions:
                 - all:
-                    # Grype records when the scan ran. 720h = 30 days; tighten
-                    # it if your release cadence allows, but do not remove it.
+                    # sign-image.yml stamps scanFinishedOn when it builds the
+                    # vulns/v0.1 predicate. 720h = 30 days; tighten it if your
+                    # release cadence allows, but do not remove it.
                     - key: "{{ time_since('', '{{ metadata.scanFinishedOn }}', '') }}"
                       operator: LessThanOrEquals
                       value: "720h"

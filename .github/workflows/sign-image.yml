@@ -128,6 +128,11 @@ jobs:
       # An SBOM says what is inside. It does not say whether any of it is known
       # to be vulnerable, and a customer cannot answer that later without
       # knowing what we knew *at release time* — hence a dated, signed scan.
+      - name: Record scan start
+        if: ${{ inputs.vuln-scan }}
+        id: scan-start
+        run: echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
       - name: Scan image for vulnerabilities
         if: ${{ inputs.vuln-scan }}
         id: scan
@@ -141,17 +146,54 @@ jobs:
           fail-build: false
           severity-cutoff: negligible
 
-      - name: Attest scan result (keyless)
+      # Grype's native JSON is not the vulns/v0.1 predicate. Attesting it raw
+      # would produce a document whose declared type it does not satisfy, and
+      # in particular one with no `metadata.scanFinishedOn` — the field the
+      # scan-age condition in policy/kyverno-verify-attestations.yaml reads.
+      # A consumer enforcing that policy would reject every image.
+      - name: Build vulns/v0.1 predicate
         if: ${{ inputs.vuln-scan }}
         env:
-          REF: ${{ inputs.image }}@${{ inputs.digest }}
           REPORT: ${{ steps.scan.outputs.json }}
+          STARTED: ${{ steps.scan-start.outputs.at }}
         run: |
           if [ ! -s "$REPORT" ]; then
             echo "::error::vulnerability scan produced no report"
             exit 1
           fi
-          cosign attest --yes --type vuln --predicate "$REPORT" "$REF"
+          # Field lookups fall back rather than fail: a grype schema change must
+          # degrade the detail recorded here, never break signing.
+          jq --arg started "$STARTED" \
+             --arg finished "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+             '{
+                scanner: {
+                  uri: ("pkg:github/anchore/grype@" + (.descriptor.version // "unknown")),
+                  version: (.descriptor.version // "unknown"),
+                  db: {
+                    uri: "pkg:github/anchore/grype-db",
+                    version: ((.descriptor.db.status.schemaVersion // .descriptor.db.schemaVersion // 0) | tostring),
+                    lastUpdate: (.descriptor.db.status.built // .descriptor.db.built // $finished)
+                  },
+                  result: [
+                    .matches[]? | {
+                      id: .vulnerability.id,
+                      severity: [ { method: "nvd", score: (.vulnerability.severity // "Unknown") } ]
+                    }
+                  ]
+                },
+                metadata: { scanStartedOn: $started, scanFinishedOn: $finished }
+              }' "$REPORT" > vuln.predicate.json
+          # Fail loudly here rather than shipping a predicate that silently
+          # fails admission in a customer cluster.
+          jq -e '.metadata.scanFinishedOn and .scanner.db.lastUpdate and (.scanner.result | type == "array")' \
+            vuln.predicate.json > /dev/null
+          echo "vulnerabilities recorded: $(jq '.scanner.result | length' vuln.predicate.json)"
+
+      - name: Attest scan result (keyless)
+        if: ${{ inputs.vuln-scan }}
+        env:
+          REF: ${{ inputs.image }}@${{ inputs.digest }}
+        run: cosign attest --yes --type vuln --predicate vuln.predicate.json "$REF"
 
       # VEX turns "this CVE is present" into "and here is whether it can be
       # reached". Statements are curated in the release repo, reviewed by the
