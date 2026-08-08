@@ -71,14 +71,13 @@ jobs:
           echo "caller authorized: $CALLER"
 
       - name: Download artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: ${{ inputs.artifact-name }}
           path: dist
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@v3
-
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
       - name: Sign blobs + checksums (keyless)
         working-directory: dist
         env:
@@ -112,12 +111,12 @@ jobs:
             SHA256SUMS
 
       - name: Build-provenance attestation
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         with:
           subject-path: dist/${{ inputs.pattern }}
 
       - name: Upload signatures
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ${{ inputs.artifact-name }}-signatures
           if-no-files-found: error

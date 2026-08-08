@@ -40,10 +40,9 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - name: Install cosign
-        uses: sigstore/cosign-installer@v3
-
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
       - name: Fetch signed measurements manifest
         if: ${{ inputs.release != '' }}
         env:
@@ -73,14 +72,17 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
-
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - name: Create kind cluster
-        uses: helm/kind-action@v1
-
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
+      # Pinned, not `latest`: an acceptance run must test a known enforcer
+      # version, and a moving target here would silently change what "PASS"
+      # means. Bump deliberately.
       - name: Install Kyverno
+        env:
+          KYVERNO_VERSION: v1.16.0
         run: |
-          kubectl apply -f https://github.com/kyverno/kyverno/releases/latest/download/install.yaml
+          kubectl apply -f "https://github.com/kyverno/kyverno/releases/download/${KYVERNO_VERSION}/install.yaml"
           kubectl -n kyverno rollout status deploy/kyverno-admission-controller --timeout=180s
 
       - name: Apply the image-verification policy

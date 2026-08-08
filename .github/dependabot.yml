@@ -1,0 +1,19 @@
+# Every third-party action in this repo is pinned to a full commit SHA, which
+# is only safe if something keeps those pins moving when upstream patches a
+# vulnerability. Dependabot is that something: it opens a PR that rewrites the
+# SHA and the trailing `# vX.Y.Z` comment together.
+#
+# Actions changes in THIS repo alter what the release signing identity runs, so
+# these PRs are reviewed like signing-key changes, not like dependency chores.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(actions)"
+    labels:
+      - dependencies
+      - supply-chain
