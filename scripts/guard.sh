@@ -122,11 +122,28 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-echo "[6] shell scripts parse"
+echo "[6] scripts parse"
 for f in policy/*.sh scripts/*.sh; do
   [ -f "$f" ] || continue
   if bash -n "$f" 2>/dev/null; then ok "$f"; else bad "$f does not parse"; fi
 done
+for f in scripts/*.py; do
+  [ -f "$f" ] || continue
+  if python3 -m py_compile "$f" 2>/dev/null; then ok "$f"; else bad "$f does not parse"; fi
+done
+rm -rf scripts/__pycache__
+
+# The policy floor is only useful if it parses and still has a [require]
+# section — an emptied baseline would let every workspace through.
+if python3 -c "
+import sys, tomllib
+req = tomllib.load(open('configs/deny-baseline.toml','rb')).get('require', {})
+sys.exit(0 if req.get('licenses_allow_superset') and 'sources_unknown_git' in req else 1)
+" 2>/dev/null; then
+  ok "configs/deny-baseline.toml defines a floor"
+else
+  bad "configs/deny-baseline.toml is missing or has an empty [require] floor"
+fi
 
 # ---------------------------------------------------------------------------
 echo "[7] workflows and policies are valid YAML"
