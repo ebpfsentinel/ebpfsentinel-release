@@ -2,8 +2,12 @@
 #
 # Runs the tamper test (policy/acceptance-tamper-test.sh) for the cosign
 # signature layer (a) and the signed-measurements layer (c), and a
-# kind + Kyverno check for the admission layer (b). Each job PASSES only when
-# tamper is correctly REJECTED.
+# kind + Kyverno check for the admission layer (b).
+#
+# Both directions are asserted, and the second is the one that matters most:
+# tamper must be REJECTED, and a genuine release must be ADMITTED. A policy
+# that denies everything satisfies the first test perfectly, so on its own it
+# tells you nothing about whether what we publish can actually be deployed.
 #
 # Manual, on-demand: needs a published, signed release to point at. Provide a
 # genuine signed image@digest; the manifest is fetched from the matching
@@ -14,7 +18,7 @@ on:
   workflow_dispatch:
     inputs:
       image:
-        description: "Genuine signed image ref with digest, e.g. ghcr.io/ebpfsentinel/ebpfsentinel@sha256:..."
+        description: "Genuine signed image ref with digest, publicly readable so Kyverno can fetch its signatures, e.g. ghcr.io/ebpfsentinel/ebpfsentinel@sha256:..."
         required: true
         type: string
       release:
@@ -85,10 +89,14 @@ jobs:
           kubectl apply -f "https://github.com/kyverno/kyverno/releases/download/${KYVERNO_VERSION}/install.yaml"
           kubectl -n kyverno rollout status deploy/kyverno-admission-controller --timeout=180s
 
-      - name: Apply the image-verification policy
+      # Both policies, because both are things customers apply. A policy this
+      # repo publishes but never loads into a cluster is a policy whose schema
+      # errors are discovered by the customer.
+      - name: Apply the verification policies
         run: |
           kubectl apply -f policy/kyverno-verify-images.yaml
-          # Give the policy a moment to register its webhook.
+          kubectl apply -f policy/kyverno-verify-attestations.yaml
+          # Give the policies a moment to register their webhooks.
           sleep 10
 
       # A locally-built image tagged under our namespace has no signature in
@@ -113,3 +121,24 @@ jobs:
             exit 1
           fi
           echo "PASS: unsigned in-scope image denied at admission"
+
+      # The negative test alone is a weak guarantee: a policy that denies
+      # everything passes it. This is the test that says the policies we publish
+      # actually let a genuine release run — including that every attestation
+      # they require is present and shaped the way the conditions expect.
+      #
+      # Admission and image pull are different things: Kyverno rejects at
+      # `kubectl run` time, whereas an unpullable image still creates the Pod.
+      # So a successful `kubectl run` means the policies passed, whatever the
+      # container does afterwards.
+      - name: Assert a genuine signed release is admitted
+        env:
+          IMAGE: ${{ inputs.image }}
+        run: |
+          if ! kubectl run genuine --image "$IMAGE" --restart=Never; then
+            echo "::error::a genuine signed image was DENIED — the published policies reject our own release"
+            kubectl delete pod genuine --ignore-not-found
+            exit 1
+          fi
+          kubectl delete pod genuine --ignore-not-found
+          echo "PASS: genuine signed image admitted by both policies"
