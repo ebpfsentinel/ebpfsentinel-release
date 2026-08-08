@@ -16,6 +16,7 @@ repos.
 |---|---|
 | [`.github/workflows/sign-image.yml`](.github/workflows/sign-image.yml) | cosign-keyless sign a pushed container image + attest SPDX SBOM |
 | [`.github/workflows/sign-blob.yml`](.github/workflows/sign-blob.yml) | cosign-keyless sign release binaries/tarballs + signed `SHA256SUMS` + build provenance |
+| [`.github/workflows/security-scan.yml`](.github/workflows/security-scan.yml) | advisories, licenses, dependency policy floor, secret scan ([`docs/CODE-SECURITY.md`](docs/CODE-SECURITY.md)) |
 
 Operational workflows run from here, not from product repos:
 

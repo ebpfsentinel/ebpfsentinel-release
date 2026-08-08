@@ -1,0 +1,90 @@
+# Dependency-policy FLOOR for every eBPFsentinel Rust workspace.
+#
+# This is not a drop-in cargo-deny config — each workspace keeps its own
+# deny.toml, because their license sets legitimately differ (AGPL for OSS,
+# LicenseRef-Proprietary for Enterprise and the dashboard, Apache-2.0 for
+# anomstream). What this file defines is the part that must NOT differ.
+#
+# `scripts/check-deny-policy.py` reads it and fails a workspace whose deny.toml
+# is weaker. Centralizing the *floor* rather than the whole config means a repo
+# can add what it needs without being able to quietly remove a control.
+
+[require]
+# cargo deny must see the whole graph. With all-features off, an advisory
+# reachable only through an optional feature goes unreported.
+graph_all_features = true
+
+# An empty ignore list is the whole point of a zero-advisory policy. A silenced
+# RUSTSEC id is a vulnerability that stopped being visible, not one that stopped
+# existing. Exceptions go through a PR against this file (see [exceptions]).
+advisories_ignore_must_be_empty = true
+
+# A dependency from an unexpected registry or a git URL is the cheapest
+# supply-chain entry point there is.
+sources_unknown_registry = "deny"
+sources_unknown_git = "deny"
+allow_git_must_be_empty = true
+
+# A wildcard version accepts whatever the registry serves next.
+bans_wildcards = "deny"
+
+# The union of licenses any workspace may allow. A workspace lists a subset;
+# anything outside this set needs review here first. Copyleft beyond AGPL and
+# anything license-unknown are excluded deliberately — we redistribute these
+# binaries to customers.
+licenses_allow_superset = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "AGPL-3.0-only",
+    "LicenseRef-Proprietary",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "0BSD",
+    "ISC",
+    "Zlib",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "Unicode-3.0",
+    "OpenSSL",
+    "MPL-2.0",
+    "BSL-1.0",
+    "Unicode-DFS-2016",
+    "Unlicense",
+]
+
+# Per-workspace exceptions, granted here so they are reviewed in one place and
+# visible to anyone auditing the release process. Empty is the goal state.
+#
+# `expires` is mandatory and enforced: past that date the exception stops
+# applying and the workspace fails again. An exception that never expires is
+# not an exception, it is a policy change nobody agreed to.
+#
+# rule ∈ { advisories_ignore, allow_git, license }.
+[[require.exceptions]]
+workspace = "ebpfsentinel-operator"
+rule = "advisories_ignore"
+value = "RUSTSEC-2026-0097"
+reason = "rand custom-logger soundness, transitive via kube/reqwest/k8s-openapi; the operator never installs a custom rand logger, so the affected path is unreachable"
+expires = "2027-04-30"
+
+[[require.exceptions]]
+workspace = "ebpfsentinel-operator"
+rule = "advisories_ignore"
+value = "RUSTSEC-2025-0012"
+reason = "backoff unmaintained, transitive via the kube 0.98 ecosystem; resolves on the next kube major bump"
+expires = "2027-04-30"
+
+[[require.exceptions]]
+workspace = "ebpfsentinel-operator"
+rule = "advisories_ignore"
+value = "RUSTSEC-2024-0384"
+reason = "instant unmaintained, transitive via the kube 0.98 ecosystem; resolves on the next kube major bump"
+expires = "2027-04-30"
+
+[[require.exceptions]]
+workspace = "ebpfsentinel-operator"
+rule = "advisories_ignore"
+value = "RUSTSEC-2025-0134"
+reason = "rustls-pemfile unmaintained, transitive via the kube 0.98 ecosystem; resolves on the next kube major bump"
+expires = "2027-04-30"

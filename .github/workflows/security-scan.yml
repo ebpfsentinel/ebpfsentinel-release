@@ -1,0 +1,205 @@
+# Centralized code-security scan, called by every product repo.
+#
+# The point is not that each repo runs a scanner — they already can. The point
+# is that the *policy* lives in one place: a repo cannot weaken its dependency
+# rules, silence an advisory, or drop a lane without a PR against this
+# repository, reviewed by the release owners.
+#
+#   jobs:
+#     security:
+#       permissions:
+#         contents: read
+#         security-events: write
+#       uses: ebpfsentinel/ebpfsentinel-release/.github/workflows/security-scan.yml@v1
+#       with:
+#         workspace: .
+#
+# The caller must grant `security-events: write` for SARIF upload and
+# `pull-requests: read` if it enables dependency review.
+name: security-scan
+
+on:
+  workflow_call:
+    inputs:
+      workspace:
+        description: "Path to the Cargo workspace root"
+        required: false
+        type: string
+        default: "."
+      toolchain:
+        description: "Rust toolchain for the dependency lanes"
+        required: false
+        type: string
+        default: "stable"
+      deny-config:
+        description: "Path to the workspace deny.toml, relative to `workspace`"
+        required: false
+        type: string
+        default: "deny.toml"
+      secret-scan:
+        description: "Scan the full git history for committed secrets"
+        required: false
+        type: boolean
+        default: true
+      dependency-review:
+        description: "Block a PR that introduces a vulnerable dependency (pull_request events only)"
+        required: false
+        type: boolean
+        default: true
+      codeql:
+        description: "Run CodeQL. Off by default — Rust support is recent and the dependency lanes carry the weight here."
+        required: false
+        type: boolean
+        default: false
+      scorecard:
+        description: "Run OpenSSF Scorecard (public repositories only)"
+        required: false
+        type: boolean
+        default: false
+      scorecard-publish:
+        description: "Publish Scorecard results to the public OpenSSF API. Off by default: it makes repository posture publicly readable."
+        required: false
+        type: boolean
+        default: false
+
+permissions: {}
+
+env:
+  # Pinned by version AND by digest. The checksums file is served from the same
+  # release as the tarball, so verifying against it only proves the download was
+  # not corrupted; the hard-coded digest below is what makes a swapped release
+  # asset fail. Bump both together.
+  GITLEAKS_VERSION: "8.30.1"
+  GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+
+jobs:
+  dependencies:
+    name: Advisories, licenses & policy floor
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      # The policy floor lives here, not in the repo being scanned — that is
+      # the whole point. Pinned to the same v1 the caller resolved.
+      - name: Fetch the central policy
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          repository: ebpfsentinel/ebpfsentinel-release
+          ref: v1
+          path: .release-policy
+
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: ${{ inputs.toolchain }}
+
+      - uses: Swatinem/rust-cache@63fed3e2fecf6f7b51dc6f043341b79ef82a9ae7 # v2.9.2
+        with:
+          workspaces: ${{ inputs.workspace }}
+
+      - uses: taiki-e/install-action@6c6fd71fe4fb72c3697d269963d0e15df8adedad # v2.85.10
+        with:
+          tool: cargo-audit,cargo-deny
+
+      # Checked before cargo-deny runs: a weakened config would otherwise make
+      # cargo-deny pass and tell us nothing.
+      - name: Dependency policy floor
+        working-directory: ${{ inputs.workspace }}
+        run: |
+          python3 "${GITHUB_WORKSPACE}/.release-policy/scripts/check-deny-policy.py" \
+            "${{ inputs.deny-config }}" \
+            --baseline "${GITHUB_WORKSPACE}/.release-policy/configs/deny-baseline.toml" \
+            --workspace "${GITHUB_REPOSITORY##*/}"
+
+      - name: cargo audit
+        working-directory: ${{ inputs.workspace }}
+        run: cargo audit --deny warnings
+
+      - name: cargo deny
+        working-directory: ${{ inputs.workspace }}
+        run: cargo deny --config "${{ inputs.deny-config }}" check
+
+  secrets:
+    name: Secret scan
+    if: inputs.secret-scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # Full history: a secret removed in a later commit is still published.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+
+      # The upstream action requires a paid licence for organization accounts;
+      # the binary is MIT and does the same job.
+      - name: Install gitleaks
+        run: |
+          url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL -o gitleaks.tar.gz "$url"
+          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum -c -
+          tar xzf gitleaks.tar.gz gitleaks
+          install -m 0755 gitleaks /usr/local/bin/gitleaks
+          rm -f gitleaks.tar.gz gitleaks
+
+      - name: Scan history
+        run: gitleaks git . --redact --no-banner --exit-code 1
+
+  dependency-review:
+    name: Dependency review
+    if: inputs.dependency-review && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: on-failure
+
+  codeql:
+    name: CodeQL
+    if: inputs.codeql
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
+        with:
+          languages: rust
+          build-mode: none
+
+      - uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
+        with:
+          category: /language:rust
+
+  scorecard:
+    name: OpenSSF Scorecard
+    if: inputs.scorecard
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      # Required only when publishing results; harmless otherwise.
+      id-token: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
+        with:
+          results_file: scorecard.sarif
+          results_format: sarif
+          publish_results: ${{ inputs.scorecard-publish }}
+
+      - uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
+        with:
+          sarif_file: scorecard.sarif
+          category: scorecard
