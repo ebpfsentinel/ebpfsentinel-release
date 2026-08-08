@@ -7,9 +7,15 @@
 # log), and attaches everything to a GitHub Release here.
 #
 # Required repository secrets:
-#   LICENSE_SIGNING_KEY_ED25519  Ed25519 signing private key (file content)
-#   LICENSE_SIGNING_KEY_MLDSA    ML-DSA-65 signing private key seed (file content)
+#   RELEASE_SIGNING_KEY_ED25519  Ed25519 release signing private key (file content)
+#   RELEASE_SIGNING_KEY_MLDSA    ML-DSA-65 release signing private key seed (file content)
 #   RELEASE_READ_TOKEN           read-only token for private release assets
+#
+# These are RELEASE signing keys, distinct from the license signing keys. The
+# two sign different things for different audiences (what we shipped vs what a
+# customer is entitled to run), so a compromise of one must not forge the
+# other. See docs/KEY-MANAGEMENT.md. The matching public keys live in
+# policy/keys/ and are published with every measurements release.
 name: issue-measurements
 
 on:
@@ -140,9 +146,13 @@ jobs:
       # Materialize the signing keys from secrets, dual-sign, then wipe.
       - name: Dual-sign manifest
         env:
-          ED_KEY: ${{ secrets.LICENSE_SIGNING_KEY_ED25519 }}
-          ML_KEY: ${{ secrets.LICENSE_SIGNING_KEY_MLDSA }}
+          ED_KEY: ${{ secrets.RELEASE_SIGNING_KEY_ED25519 }}
+          ML_KEY: ${{ secrets.RELEASE_SIGNING_KEY_MLDSA }}
         run: |
+          if [ -z "$ED_KEY" ] || [ -z "$ML_KEY" ]; then
+            echo "::error::RELEASE_SIGNING_KEY_ED25519 / RELEASE_SIGNING_KEY_MLDSA are not set — see docs/KEY-MANAGEMENT.md"
+            exit 1
+          fi
           printf '%s' "$ED_KEY" > ed25519.key
           printf '%s' "$ML_KEY" > mldsa.key
           ./ebpfsentinel-license sign-manifest \
@@ -153,6 +163,26 @@ jobs:
           shred -u ed25519.key mldsa.key
           echo "----- signed envelope (3 lines) -----"
           wc -l measurements.signed
+
+      # Self-check with the published public keys: a manifest customers cannot
+      # verify is worse than no manifest, so catch a key/secret mismatch here
+      # rather than in a customer's air-gapped install.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          path: repo
+
+      - name: Verify manifest with the published public keys
+        run: |
+          ed=repo/policy/keys/release-signing-ed25519.pub
+          ml=repo/policy/keys/release-signing-mldsa.pub
+          if [ ! -s "$ed" ] || [ ! -s "$ml" ]; then
+            echo "::error::policy/keys/ does not hold the release public keys — see docs/KEY-MANAGEMENT.md"
+            exit 1
+          fi
+          ./ebpfsentinel-license verify-manifest \
+            --input measurements.signed \
+            --public-key "$ed" \
+            --pq-public-key "$ml"
 
       - name: Bundle manifest for signing
         run: |
@@ -194,8 +224,13 @@ jobs:
           name: measurements-signatures
           path: pub
       # Ship the customer verification helpers alongside the signed manifest.
+      # The public keys travel with the manifest so an air-gapped site can
+      # verify it with no network and nothing else downloaded.
       - name: Stage verification helpers
-        run: cp policy/verify.sh policy/cosign-public.md pub/
+        run: |
+          cp policy/verify.sh policy/cosign-public.md pub/
+          cp policy/keys/release-signing-ed25519.pub \
+             policy/keys/release-signing-mldsa.pub pub/
       - name: Create / update measurements release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -205,4 +240,4 @@ jobs:
           gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
           gh release create "$TAG" pub/* \
             --title "Measurements ${REL}" \
-            --notes "Dual-signed (Ed25519 + ML-DSA-65) release measurements for ${REL}. Verify: ./verify.sh sums SHA256SUMS SHA256SUMS.sig SHA256SUMS.crt then ebpfsentinel-license verify-manifest. See docs/CONSUMER-ENFORCEMENT.md."
+            --notes "Dual-signed (Ed25519 + ML-DSA-65) release measurements for ${REL}. Verify: ./verify.sh sums SHA256SUMS SHA256SUMS.sig SHA256SUMS.crt then ebpfsentinel-license verify-manifest --input measurements.signed --public-key release-signing-ed25519.pub --pq-public-key release-signing-mldsa.pub (both public keys are attached, so this works air-gapped). See docs/CONSUMER-ENFORCEMENT.md."

@@ -81,8 +81,19 @@ Keyless verification normally calls the public Sigstore transparency log
   OFFLINE=1 ./verify.sh sums SHA256SUMS SHA256SUMS.sig SHA256SUMS.crt
   ```
 
-- **Rely on the key-based layer.** The signed measurements manifest and the
-  license are dual-signed (Ed25519 + ML-DSA-65) with our own keys and verify
-  **fully offline** — no Fulcio/Rekor at all. That is the natural trust path
-  for enterprise air-gap deployments; the keyless image chain is the
-  connected-site path.
+- **Rely on the key-based layer.** The signed measurements manifest is
+  dual-signed (Ed25519 + ML-DSA-65) with our release signing keys and verifies
+  **fully offline** — no Fulcio/Rekor at all. Both public keys ship as assets
+  of the same `measurements/v*` release, so nothing else needs downloading:
+
+  ```bash
+  ebpfsentinel-license verify-manifest \
+    --input measurements.signed \
+    --public-key release-signing-ed25519.pub \
+    --pq-public-key release-signing-mldsa.pub
+  ```
+
+  Both signatures must verify. That is the natural trust path for enterprise
+  air-gap deployments; the keyless image chain is the connected-site path.
+  Licenses are signed with a *different* pair — see
+  [`KEY-MANAGEMENT.md`](KEY-MANAGEMENT.md).
