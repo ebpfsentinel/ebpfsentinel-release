@@ -10,6 +10,13 @@
 # NOTE on identity: sign-image.yml runs as a *reusable* workflow, so Sigstore
 # records the reusable workflow ref as the certificate identity (the subject
 # below). The issuer never changes.
+#
+# Because the subject names the *called* workflow, it does not by itself say
+# which repository asked for the signature — any repo calling our public
+# reusable workflow gets a certificate with that same subject. Each attestor
+# entry below therefore also pins `githubWorkflowRepository`, the Fulcio
+# extension recording the caller. `count: 1` over the entries means "signed by
+# our workflow AND released from one of these repositories".
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
@@ -46,5 +53,28 @@ spec:
                 - keyless:
                     subject: "https://github.com/ebpfsentinel/ebpfsentinel-release/.github/workflows/sign-image.yml@refs/tags/*"
                     issuer: "https://token.actions.githubusercontent.com"
+                    additionalExtensions:
+                      githubWorkflowRepository: ebpfsentinel/ebpfsentinel
+                    rekor:
+                      url: https://rekor.sigstore.dev
+                - keyless:
+                    subject: "https://github.com/ebpfsentinel/ebpfsentinel-release/.github/workflows/sign-image.yml@refs/tags/*"
+                    issuer: "https://token.actions.githubusercontent.com"
+                    additionalExtensions:
+                      githubWorkflowRepository: ebpfsentinel/ebpfsentinel-enterprise
+                    rekor:
+                      url: https://rekor.sigstore.dev
+                - keyless:
+                    subject: "https://github.com/ebpfsentinel/ebpfsentinel-release/.github/workflows/sign-image.yml@refs/tags/*"
+                    issuer: "https://token.actions.githubusercontent.com"
+                    additionalExtensions:
+                      githubWorkflowRepository: ebpfsentinel/ebpfsentinel-operator
+                    rekor:
+                      url: https://rekor.sigstore.dev
+                - keyless:
+                    subject: "https://github.com/ebpfsentinel/ebpfsentinel-release/.github/workflows/sign-image.yml@refs/tags/*"
+                    issuer: "https://token.actions.githubusercontent.com"
+                    additionalExtensions:
+                      githubWorkflowRepository: ebpfsentinel/ebpfsentinel-dashboard
                     rekor:
                       url: https://rekor.sigstore.dev

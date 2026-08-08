@@ -13,6 +13,16 @@
 #
 # Pick ONE admission enforcer — do not run this together with the Kyverno
 # policy, or images get verified twice.
+#
+# LIMITATION vs the Kyverno policy: ClusterImagePolicy matches only the
+# certificate issuer and subject. It cannot pin `githubWorkflowRepository`,
+# the Fulcio extension naming the repository that called our reusable signing
+# workflow, so it does not distinguish a signature produced by one of our
+# product repos from one produced by an unrelated repo calling the same public
+# workflow. That gap is closed at signing time by the caller allowlist in
+# .github/workflows/sign-image.yml, and the `images` glob below keeps the
+# policy scoped to a registry namespace only we can push to. Prefer the
+# Kyverno policy where both layers are available.
 apiVersion: policy.sigstore.dev/v1beta1
 kind: ClusterImagePolicy
 metadata:

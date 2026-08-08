@@ -10,6 +10,17 @@
 # Trust anchor for verification (see policy/):
 #   issuer:   https://token.actions.githubusercontent.com
 #   identity: https://github.com/ebpfsentinel/ebpfsentinel-release/.github/workflows/sign-blob.yml@refs/tags/v*
+#   source:   the calling repository, recorded in the Fulcio certificate as
+#             the GitHub Workflow Repository extension (OID 1.3.6.1.4.1.57264.1.5)
+#
+# IMPORTANT — reusable-workflow identity: Sigstore records the *called*
+# workflow ref as the certificate subject, so any repository on GitHub that
+# calls this public workflow would obtain a certificate carrying OUR identity.
+# Blobs are the sharper edge of that flaw: unlike images they are not scoped to
+# a registry namespace we control, so a rogue caller could hand a customer a
+# tarball that passes `verify.sh`. The `Authorize caller repository` gate below
+# fails the job before any OIDC token is exchanged; verifiers must ALSO pin the
+# caller repository (see policy/verify.sh).
 name: sign-blob
 
 on:
@@ -27,6 +38,16 @@ on:
 
 permissions: {}
 
+env:
+  # Repositories allowed to borrow this signing identity. Keep in sync with
+  # ALLOWED_SOURCE_REPOS in policy/verify.sh and .github/workflows/sign-image.yml.
+  ALLOWED_CALLERS: |
+    ebpfsentinel/ebpfsentinel
+    ebpfsentinel/ebpfsentinel-enterprise
+    ebpfsentinel/ebpfsentinel-operator
+    ebpfsentinel/ebpfsentinel-dashboard
+    ebpfsentinel/ebpfsentinel-release
+
 jobs:
   sign:
     name: Sign blobs
@@ -36,6 +57,19 @@ jobs:
       contents: read
       attestations: write
     steps:
+      # In a reusable workflow `github.repository` is the CALLER's repository.
+      # Runs before any signing step so an unauthorized caller never reaches
+      # the OIDC token exchange.
+      - name: Authorize caller repository
+        env:
+          CALLER: ${{ github.repository }}
+        run: |
+          if ! printf '%s\n' "$ALLOWED_CALLERS" | grep -qxF "$CALLER"; then
+            echo "::error::repository '$CALLER' is not authorized to use the eBPFsentinel release signing identity"
+            exit 1
+          fi
+          echo "caller authorized: $CALLER"
+
       - name: Download artifact
         uses: actions/download-artifact@v4
         with:

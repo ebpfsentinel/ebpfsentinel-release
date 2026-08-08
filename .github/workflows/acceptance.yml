@@ -21,6 +21,11 @@ on:
         description: "Release version whose measurements manifest to test, e.g. 2026.6.1"
         required: false
         type: string
+      source-repo:
+        description: "Repository the image was released from (certificate caller pinning)"
+        required: false
+        default: ebpfsentinel/ebpfsentinel
+        type: string
 
 permissions: {}
 
@@ -49,12 +54,13 @@ jobs:
             -R "${ORG}/ebpfsentinel-release" \
             -p 'measurements.signed*' -D man || echo "no measurements release yet"
 
-      - name: Run tamper test (a + c)
+      - name: Run tamper test (a + c + d)
         env:
           IMAGE: ${{ inputs.image }}
+          SRC_REPO: ${{ inputs.source-repo }}
         run: |
           chmod +x policy/acceptance-tamper-test.sh
-          args=(--image "$IMAGE")
+          args=(--image "$IMAGE" --source-repo "$SRC_REPO")
           if [ -f man/measurements.signed ]; then
             args+=(--manifest man/measurements.signed)
           fi

@@ -41,5 +41,12 @@ jobs:
 - Acceptance (tamper is inert at every layer): [`policy/acceptance-tamper-test.sh`](policy/acceptance-tamper-test.sh) / [`.github/workflows/acceptance.yml`](.github/workflows/acceptance.yml).
 
 Trust anchor: cosign keyless, issuer `token.actions.githubusercontent.com`,
-identity = this repo's signing workflows on a `v*` tag. No public key to
-distribute; image/blob signing needs no stored secret.
+identity = this repo's signing workflows on a `v*` tag, **plus** the calling
+repository recorded in the certificate. No public key to distribute; image/blob
+signing needs no stored secret.
+
+Because the signing workflows are reusable, the certificate subject names the
+*called* workflow, not the caller — so both are enforced: an allowlist of
+caller repositories at signing time, and `githubWorkflowRepository` pinning at
+verification time. Verify with the subject alone and any repository calling
+these public workflows would pass.
