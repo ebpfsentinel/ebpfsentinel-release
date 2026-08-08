@@ -36,6 +36,16 @@ on:
         required: false
         default: true
         type: boolean
+      vuln-scan:
+        description: "Scan the image and attest the result (a dated statement of what we knew at release time)"
+        required: false
+        default: true
+        type: boolean
+      vex:
+        description: "Attach the OpenVEX statements curated in ebpfsentinel-release/vex/, if any exist for this component"
+        required: false
+        default: true
+        type: boolean
 
 permissions: {}
 
@@ -114,3 +124,65 @@ jobs:
         env:
           REF: ${{ inputs.image }}@${{ inputs.digest }}
         run: cosign attest --yes --type spdxjson --predicate sbom.spdx.json "$REF"
+
+      # An SBOM says what is inside. It does not say whether any of it is known
+      # to be vulnerable, and a customer cannot answer that later without
+      # knowing what we knew *at release time* — hence a dated, signed scan.
+      - name: Scan image for vulnerabilities
+        if: ${{ inputs.vuln-scan }}
+        id: scan
+        uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
+        with:
+          image: ${{ inputs.image }}@${{ inputs.digest }}
+          output-format: json
+          # Never gate the signature on the scan result: an unsigned image that
+          # ships anyway is strictly worse than a signed one with a known CVE
+          # recorded against it. Release gating belongs in the product repo.
+          fail-build: false
+          severity-cutoff: negligible
+
+      - name: Attest scan result (keyless)
+        if: ${{ inputs.vuln-scan }}
+        env:
+          REF: ${{ inputs.image }}@${{ inputs.digest }}
+          REPORT: ${{ steps.scan.outputs.json }}
+        run: |
+          if [ ! -s "$REPORT" ]; then
+            echo "::error::vulnerability scan produced no report"
+            exit 1
+          fi
+          cosign attest --yes --type vuln --predicate "$REPORT" "$REF"
+
+      # VEX turns "this CVE is present" into "and here is whether it can be
+      # reached". Statements are curated in the release repo, reviewed by the
+      # release owners, and pinned to this exact digest at attach time.
+      - name: Fetch curated VEX statements
+        if: ${{ inputs.vex }}
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          repository: ebpfsentinel/ebpfsentinel-release
+          ref: v1
+          path: .release-policy
+
+      - name: Attest VEX (keyless)
+        if: ${{ inputs.vex }}
+        env:
+          IMAGE: ${{ inputs.image }}
+          DIGEST: ${{ inputs.digest }}
+        run: |
+          COMPONENT="${IMAGE##*/}"
+          SRC=".release-policy/vex/${COMPONENT}.openvex.json"
+          if [ ! -f "$SRC" ]; then
+            echo "::notice::no curated VEX statements for ${COMPONENT} — nothing to assert"
+            exit 0
+          fi
+          # Statements are authored against the component; only here do we know
+          # the digest they apply to.
+          jq --arg purl "pkg:oci/${COMPONENT}@${DIGEST}" \
+             --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+             '.timestamp = $now
+              | .statements = [ .statements[] | .products = [ { "@id": $purl } ] ]' \
+             "$SRC" > vex.openvex.json
+          python3 .release-policy/scripts/check-vex.py vex.openvex.json
+          cosign attest --yes --type openvex --predicate vex.openvex.json \
+            "${IMAGE}@${DIGEST}"

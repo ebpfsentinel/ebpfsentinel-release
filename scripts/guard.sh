@@ -146,7 +146,19 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-echo "[7] workflows and policies are valid YAML"
+echo "[7] curated VEX statements are valid"
+if ls vex/*.openvex.json >/dev/null 2>&1; then
+  if python3 scripts/check-vex.py vex/*.openvex.json; then
+    ok "VEX documents valid"
+  else
+    bad "invalid VEX document"
+  fi
+else
+  echo "  SKIP: no curated VEX statements"
+fi
+
+# ---------------------------------------------------------------------------
+echo "[8] workflows and policies are valid YAML"
 python3 - <<'PY'
 import glob, sys, yaml
 bad = []

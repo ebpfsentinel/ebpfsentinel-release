@@ -8,6 +8,7 @@ against evidence the attacker does not control:
 |---|---|---|
 | Registry signature (cosign keyless + Rekor) | image/binary is authentic | anyone, offline-capable (`verify.sh`) |
 | Cluster admission (Kyverno `verifyImages`) | only signed digests run in k8s | the customer's cluster |
+| Attestations (SBOM, vulnerability scan, VEX) | what we knew about the image when we shipped it | `cosign verify-attestation`, Kyverno |
 | Revocation list (dual-signed, monotonic serial) | withdrawn digests stop running | `check-revocation.sh`, Kyverno deny policy |
 
 Break the artifact anywhere → its digest changes → no signature exists for
@@ -40,6 +41,34 @@ kubectl run rogue --image ghcr.io/ebpfsentinel/ebpfsentinel:tampered
 > Already running the **Sigstore Policy Controller** instead of Kyverno? Use
 > [`policy/policy-controller-clusterimagepolicy.yaml`](../policy/policy-controller-clusterimagepolicy.yaml)
 > — same guarantee, cosign-native. Run only one of the two enforcers.
+
+### Attestations
+
+Every image carries an SPDX SBOM, a dated vulnerability scan, and — where we
+have something to say about a CVE — OpenVEX statements. Read them:
+
+```bash
+REF=ghcr.io/ebpfsentinel/ebpfsentinel@sha256:<digest>
+ID_RE='^https://github.com/ebpfsentinel/ebpfsentinel-release/.github/workflows/sign-image.yml@refs/tags/v'
+
+# What is inside / what was known to be wrong with it / what we assert about it
+for t in spdxjson vuln openvex; do
+  cosign verify-attestation --type "$t" \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+    --certificate-identity-regexp "$ID_RE" \
+    --certificate-github-workflow-repository ebpfsentinel/ebpfsentinel "$REF" \
+    | jq -r '.payload | @base64d | fromjson | .predicate'
+done
+```
+
+To require them at admission — including that the scan is recent, not merely
+present — apply
+[`policy/kyverno-verify-attestations.yaml`](../policy/kyverno-verify-attestations.yaml)
+alongside the signature policy.
+
+A scan attestation is a statement about the day it ran, not about today. Treat
+an old one as an old one: the policy bounds it at 30 days, and the honest read
+of a passing check is "nothing known then", not "nothing wrong now".
 
 ## 2. GitOps: deploy by digest
 

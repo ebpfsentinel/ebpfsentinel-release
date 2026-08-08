@@ -47,6 +47,7 @@ jobs:
 ## Verification
 
 - Kubernetes: apply [`policy/kyverno-verify-images.yaml`](policy/kyverno-verify-images.yaml), or the cosign-native [`policy/policy-controller-clusterimagepolicy.yaml`](policy/policy-controller-clusterimagepolicy.yaml) (pick one).
+- Attestations (SBOM + recent vulnerability scan + [VEX](vex/README.md)): [`policy/kyverno-verify-attestations.yaml`](policy/kyverno-verify-attestations.yaml).
 - Bare metal: [`policy/verify.sh`](policy/verify.sh) (also shipped with each `measurements/v*` release; `OFFLINE=1` for air-gapped sites).
 - License delivery (per-customer Secret): [`policy/license-external-secret.yaml`](policy/license-external-secret.yaml).
 - Full runbook (admission + GitOps digest-pin + license + air-gap): [`docs/CONSUMER-ENFORCEMENT.md`](docs/CONSUMER-ENFORCEMENT.md).
