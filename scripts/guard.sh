@@ -203,6 +203,35 @@ print("  PASS: all YAML parses")
 PY
 [ $? -eq 0 ] || fail=1
 
+# ---------------------------------------------------------------------------
+echo "[10] shell inside workflows parses"
+# A workflow can be flawless YAML and still hold a `run:` block that does not
+# parse. Those only break at run time — which for the signing workflows means
+# in the middle of a release, after the artifacts are already published.
+python3 - <<'PY'
+import glob, subprocess, sys, yaml
+bad = total = 0
+for path in sorted(glob.glob(".github/workflows/*.yml")):
+    doc = yaml.safe_load(open(path))
+    for job_name, job in (doc.get("jobs") or {}).items():
+        for i, step in enumerate(job.get("steps") or []):
+            script = step.get("run")
+            if not script:
+                continue
+            total += 1
+            # GitHub runs `bash -e {0}`; `bash -n` is the parse-only equivalent.
+            r = subprocess.run(["bash", "-n"], input=script,
+                               capture_output=True, text=True)
+            if r.returncode != 0:
+                bad += 1
+                print(f"  FAIL: {path}::{job_name}::{step.get('name', f'step{i}')}")
+                print("   ", r.stderr.strip())
+if bad:
+    sys.exit(1)
+print(f"  PASS: {total} run: blocks parse")
+PY
+[ $? -eq 0 ] || fail=1
+
 echo
 if [ "$fail" -eq 0 ]; then
   echo "guard: OK"
