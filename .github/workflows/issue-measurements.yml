@@ -34,6 +34,16 @@ on:
           ghcr.io/ebpfsentinel/ebpfsentinel-operator
           ghcr.io/ebpfsentinel/ebpfsentinel-dashboard
         type: string
+      reissue:
+        description: "Replace an already-published measurements release (audited, requires a reason)"
+        required: false
+        default: false
+        type: boolean
+      reissue-reason:
+        description: "Why the existing manifest is being replaced — recorded in the release notes"
+        required: false
+        default: ""
+        type: string
 
 permissions: {}
 
@@ -231,13 +241,52 @@ jobs:
           cp policy/verify.sh policy/cosign-public.md pub/
           cp policy/keys/release-signing-ed25519.pub \
              policy/keys/release-signing-mldsa.pub pub/
-      - name: Create / update measurements release
+      # A measurements release is evidence about what we shipped. Silently
+      # replacing one lets a later run rewrite history — a customer who pinned
+      # digests from the first manifest would have no way to notice. Publishing
+      # is therefore append-only: an existing tag is an error unless the
+      # operator explicitly asks to reissue and says why, and the reason is
+      # recorded in the release notes.
+      - name: Refuse to overwrite an existing manifest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REL: ${{ inputs.release }}
+          REISSUE: ${{ inputs.reissue }}
+          REASON: ${{ inputs.reissue-reason }}
         run: |
           TAG="measurements/v${REL}"
-          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            echo "no existing $TAG — publishing"
+            exit 0
+          fi
+          if [ "$REISSUE" != "true" ]; then
+            echo "::error::$TAG already exists. Measurements are append-only; re-run with reissue=true and a reason if replacing it is genuinely intended."
+            exit 1
+          fi
+          if [ -z "$REASON" ]; then
+            echo "::error::reissue=true requires reissue-reason — it is recorded in the release notes as the audit trail."
+            exit 1
+          fi
+          echo "::warning::replacing existing $TAG — reason: $REASON"
+          gh release delete "$TAG" --yes --cleanup-tag
+
+      - name: Create measurements release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REL: ${{ inputs.release }}
+          REISSUE: ${{ inputs.reissue }}
+          REASON: ${{ inputs.reissue-reason }}
+        run: |
+          TAG="measurements/v${REL}"
+          NOTES="Dual-signed (Ed25519 + ML-DSA-65) release measurements for ${REL}."
+          NOTES="${NOTES} Verify: ./verify.sh sums SHA256SUMS SHA256SUMS.sig SHA256SUMS.crt"
+          NOTES="${NOTES} then ebpfsentinel-license verify-manifest --input measurements.signed"
+          NOTES="${NOTES} --public-key release-signing-ed25519.pub --pq-public-key release-signing-mldsa.pub"
+          NOTES="${NOTES} (both public keys are attached, so this works air-gapped)."
+          NOTES="${NOTES} See docs/CONSUMER-ENFORCEMENT.md."
+          if [ "$REISSUE" = "true" ]; then
+            NOTES="${NOTES}"$'\n\n'"REISSUED — this manifest replaces an earlier one for the same release. Reason: ${REASON}"
+          fi
           gh release create "$TAG" pub/* \
             --title "Measurements ${REL}" \
-            --notes "Dual-signed (Ed25519 + ML-DSA-65) release measurements for ${REL}. Verify: ./verify.sh sums SHA256SUMS SHA256SUMS.sig SHA256SUMS.crt then ebpfsentinel-license verify-manifest --input measurements.signed --public-key release-signing-ed25519.pub --pq-public-key release-signing-mldsa.pub (both public keys are attached, so this works air-gapped). See docs/CONSUMER-ENFORCEMENT.md."
+            --notes "$NOTES"
