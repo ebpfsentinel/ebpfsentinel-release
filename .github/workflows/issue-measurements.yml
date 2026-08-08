@@ -121,20 +121,38 @@ jobs:
             echo "::endgroup::"
           done
 
+      # One directory per tarball. Extracting them all into a shared tree would
+      # let the arm64 build overwrite the amd64 one whenever a tarball unpacks
+      # flat, and we would measure the survivor under both names without ever
+      # noticing. The tarball is already arch-specific, so its own directory is
+      # all the disambiguation needed.
+      - name: Extract release tarballs
+        run: |
+          set -euo pipefail
+          mkdir -p ex
+          cut -f3 binaries.tsv | sort -u | while IFS= read -r tarball; do
+            [ -z "$tarball" ] && continue
+            dest="ex/${tarball}"
+            mkdir -p "$dest"
+            tar xzf "dl/${tarball}" -C "$dest"
+          done
+
       - name: Stage license tool
         run: |
           set -euo pipefail
           # The signing tool ships inside the enterprise tarball; take the
           # amd64 build, which is what this runner can execute.
-          row="$(awk -F'\t' '$4 == "ebpfsentinel-license" && $5 == "amd64"' binaries.tsv | head -1)"
-          if [ -z "$row" ]; then
+          tarball="$(awk -F'\t' '$4 == "ebpfsentinel-license" && $5 == "amd64" {print $3; exit}' binaries.tsv)"
+          if [ -z "$tarball" ]; then
             echo "::error::the release manifest declares no ebpfsentinel-license binary for amd64"
             exit 1
           fi
-          tarball="$(printf '%s' "$row" | cut -f3)"
-          tar xzf "dl/${tarball}" -C dl
-          find dl -name ebpfsentinel-license -type f -print0 \
-            | head -z -n1 | xargs -0 -I{} install -m 0755 {} ./ebpfsentinel-license
+          path="$(find "ex/${tarball}" -type f -name ebpfsentinel-license | head -1)"
+          if [ -z "$path" ]; then
+            echo "::error::ebpfsentinel-license not found inside ${tarball}"
+            exit 1
+          fi
+          install -m 0755 "$path" ./ebpfsentinel-license
           ./ebpfsentinel-license --help >/dev/null
 
       - name: Assemble measurements.json
@@ -149,12 +167,18 @@ jobs:
           }
 
           # --- Binaries: sha256 of the extracted executables, per arch -----
+          # The arch comes from which tarball the file was unpacked from, not
+          # from guessing at the path inside it.
           while IFS=$'\t' read -r repo version tarball binname arch; do
             [ -z "$tarball" ] && continue
-            tar xzf "dl/${tarball}" -C dl 2>/dev/null || true
-            path="$(find dl -type f -name "$binname" -path "*${arch}*" | head -1)"
+            matches="$(find "ex/${tarball}" -type f -name "$binname" | head -2)"
+            path="$(printf '%s\n' "$matches" | head -1)"
             if [ -z "$path" ]; then
               echo "::error::${binname} (${arch}) not found in ${tarball}"
+              exit 1
+            fi
+            if [ "$(printf '%s\n' "$matches" | grep -c .)" -gt 1 ]; then
+              echo "::error::${tarball} contains more than one file named ${binname} — cannot say which one we shipped"
               exit 1
             fi
             add "${binname}-${arch}" binary "$(sha256sum "$path" | awk '{print $1}')"
