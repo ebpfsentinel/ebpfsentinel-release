@@ -1,0 +1,15 @@
+# Nothing generated belongs in the trust anchor. The entries below are the
+# things that appear in a working copy and would otherwise be committed by a
+# `git add -A` on a machine where they exist.
+__pycache__/
+*.pyc
+
+# Local tooling caches.
+.code-review-graph/
+
+# Belt and braces: no private key material ever lands here by accident.
+# scripts/guard.sh fails the build if one does, but a commit is already too
+# late by then.
+*.key
+*.pem
+policy/keys/*.key
