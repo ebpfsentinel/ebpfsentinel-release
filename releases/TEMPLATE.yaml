@@ -1,11 +1,16 @@
 # Release coordination manifest — copy to releases/<version>.yaml.
 #
-# This is the single declaration of what "release 2026.6.1" means across seven
-# repositories. `issue-measurements.yml` reads it to decide what to measure and
-# sign, so a component left out here is left out of the signed inventory — the
-# manifest is load-bearing, not documentation.
+# This is the single declaration of what "release 2026.6.1" means across the
+# component repositories. `issue-measurements.yml` reads it to decide what to
+# measure and sign, so a component left out here is left out of the signed
+# inventory — the manifest is load-bearing, not documentation.
 #
-# Validate before committing:
+# `release:` is the product version. Each component carries its OWN version:
+# they ship on their own cadence, and pretending otherwise would force a
+# version bump on four repositories because one of them changed.
+#
+# Every component listed here must also have a `## [<its version>]` section in
+# changelogs/<name>.md, in the same pull request. Validate both with:
 #   ./scripts/check-release-manifest.py releases/<version>.yaml
 schema: ebpfsentinel.release/v1
 release: "2026.6.1"
@@ -51,6 +56,20 @@ components:
     version: "2026.6.1"
     license: LicenseRef-Proprietary
     image: ghcr.io/ebpfsentinel/ebpfsentinel-dashboard
+
+  # A component can ship as crates.io packages and nothing else. It is measured
+  # from the registry's own checksum for the published version, which is what a
+  # `cargo build` of a dependent resolves against — so the inventory covers what
+  # a customer's build actually pulls, not a tarball we happened to attach.
+  - name: anomstream
+    repo: ebpfsentinel/anomstream
+    version: "2026.4.1"
+    license: Apache-2.0
+    crates:
+      - anomstream
+      - anomstream-core
+      - anomstream-triage
+      - anomstream-hotpath
 
 # What this set of components runs against. These are the questions customers
 # ask first, and the ones that fail at load time rather than at install time.

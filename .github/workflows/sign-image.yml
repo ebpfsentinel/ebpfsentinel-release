@@ -59,6 +59,7 @@ env:
     ebpfsentinel/ebpfsentinel-operator
     ebpfsentinel/ebpfsentinel-dashboard
     ebpfsentinel/ebpfsentinel-release
+    ebpfsentinel/anomstream
 
 jobs:
   sign:

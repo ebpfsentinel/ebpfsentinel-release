@@ -1,22 +1,27 @@
 # Issue a signed release-measurements manifest: an inventory of the known-good
-# sha256 of the published binaries and OCI digests of the published images for
-# a release. Runs AFTER every component release is published.
+# sha256 of the published binaries, OCI digests of the published images and
+# crates.io checksums for a release. Runs AFTER the release `v<version>` in
+# THIS repository holds every component's assets — see docs/RELEASES.md.
+#
+# Releases are centralized here: the component repositories build and sign, and
+# upload into this repository's release. So the tarballs are measured from the
+# same release a customer downloads from, not from a per-repo release nobody
+# else can see, and the release notes come from `changelogs/` in this checkout
+# rather than from seven GitHub Releases that have to be stitched together.
 #
 # What gets measured comes from `releases/<version>.yaml` — the release
-# coordination manifest — not from a list typed into this workflow. Seven
-# repositories ship as one product; declaring the set once means a component
-# cannot be silently missing from the signed inventory because nobody
-# remembered it.
+# coordination manifest — not from a list typed into this workflow. Declaring
+# the set once means a component cannot be silently missing from the signed
+# inventory because nobody remembered it.
 #
 # It assembles `measurements.json`, DUAL-SIGNS it (Ed25519 + ML-DSA-65) with
 # this repo's signing keys, additionally cosign-keyless signs it (transparency
-# log), and attaches everything to a GitHub Release here — together with the
-# aggregated cross-repo changelog and the verified per-component SBOMs.
+# log), and attaches everything to a `measurements/v<version>` Release here —
+# together with the aggregated changelog and the verified per-component SBOMs.
 #
 # Required repository secrets:
 #   RELEASE_SIGNING_KEY_ED25519  Ed25519 release signing private key (file content)
 #   RELEASE_SIGNING_KEY_MLDSA    ML-DSA-65 release signing private key seed (file content)
-#   RELEASE_READ_TOKEN           read-only token with access to every component repo
 #
 # These are RELEASE signing keys, distinct from the license signing keys. The
 # two sign different things for different audiences (what we shipped vs what a
@@ -91,34 +96,41 @@ jobs:
           fi
           python3 repo/scripts/check-release-manifest.py --images "$MANIFEST" > images.txt
           python3 repo/scripts/check-release-manifest.py --binaries "$MANIFEST" > binaries.tsv
+          python3 repo/scripts/check-release-manifest.py --crates "$MANIFEST" > crates.tsv
+          python3 repo/scripts/check-release-manifest.py --components "$MANIFEST" > components.tsv
           {
             echo "manifest=$MANIFEST"
             echo "status=$status"
           } >> "$GITHUB_OUTPUT"
           echo "images:"; cat images.txt
           echo "binaries:"; cut -f1,3,4 binaries.tsv
+          echo "crates:"; cat crates.tsv
 
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - name: Install crane
         uses: imjasonh/setup-crane@feee3b6bb0d4c68370f256a4502498c9227e5c6b # v0.7
 
-      # One read-only token for every component repo — some are private, and
-      # splitting tokens per repo bought nothing except a way to forget one.
+      # The tarballs live on THIS repository's release for the version, put
+      # there by each component's build. Measuring the same asset a customer
+      # downloads is the whole point; fetching a private per-repo copy would
+      # measure something nobody else can obtain.
       - name: Download release tarballs
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_READ_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          REL: ${{ inputs.release }}
         run: |
           set -euo pipefail
-          if [ -z "${GH_TOKEN}" ]; then
-            echo "::error::RELEASE_READ_TOKEN is not set — see docs/KEY-MANAGEMENT.md"
-            exit 1
-          fi
           mkdir -p dl
           # Same tarball can carry several binaries; download each one once.
-          cut -f1,2,3 binaries.tsv | sort -u | while IFS=$'\t' read -r repo version tarball; do
-            echo "::group::$repo v$version $tarball"
-            gh release download "v${version}" --repo "$repo" --pattern "$tarball" --dir dl --clobber
+          cut -f3 binaries.tsv | sort -u | while IFS= read -r tarball; do
+            [ -z "$tarball" ] && continue
+            echo "::group::v${REL} $tarball"
+            if ! gh release download "v${REL}" --pattern "$tarball" --dir dl --clobber; then
+              echo "::error::${tarball} is not attached to release v${REL} — the component build has not uploaded it"
+              exit 1
+            fi
             echo "::endgroup::"
           done
 
@@ -191,6 +203,21 @@ jobs:
             add "${img%:*}" image "$(crane digest "$img")"
           done < images.txt
 
+          # --- Crates: the registry's own checksum for the published version
+          # This is the hash cargo verifies a dependent's build against, so it
+          # is the measurement that means something for a crates.io component.
+          while IFS=$'\t' read -r crate version; do
+            [ -z "$crate" ] && continue
+            sum="$(curl -fsSL "https://crates.io/api/v1/crates/${crate}/${version}" \
+                   -H 'User-Agent: ebpfsentinel-release (measurements)' \
+                   | jq -r '.version.checksum')"
+            if [ -z "$sum" ] || [ "$sum" = "null" ]; then
+              echo "::error::crates.io has no checksum for ${crate} ${version} — is it published?"
+              exit 1
+            fi
+            add "crates.io/${crate}" crate "$sum"
+          done < crates.tsv
+
           jq -n \
             --arg schema "ebpfsentinel.measurements/v1" \
             --arg release "$REL" \
@@ -201,60 +228,22 @@ jobs:
           echo "----- measurements.json -----"
           cat measurements.json
 
-      # Aggregate the per-repo release notes into one document. Seven
-      # changelogs a customer has to find and stitch together themselves is a
-      # changelog nobody reads.
-      - name: Aggregate cross-repo changelog
+      # The same document the release itself carries, regenerated here so it
+      # travels inside the signed set. Both come from scripts/aggregate-
+      # changelog.py: two copies of this logic would let the signed notes and
+      # the published notes disagree, and a customer could not tell which to
+      # believe.
+      - name: Aggregate component changelogs
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_READ_TOKEN }}
           REL: ${{ inputs.release }}
           MANIFEST: ${{ steps.manifest.outputs.manifest }}
         run: |
           set -euo pipefail
-          OUT="CHANGELOG-${REL}.md"
-          {
-            echo "# eBPFsentinel ${REL}"
-            echo
-            python3 - "$MANIFEST" <<'PY'
-          import sys, yaml
-          d = yaml.safe_load(open(sys.argv[1]))
-          c = d.get("compatibility", {})
-          print(f"Released {d['date']} — status: **{d['status']}**.")
-          if d.get("supersedes"):
-              print(f"Supersedes {d['supersedes']}.")
-          print()
-          print("| Component | Version | License |")
-          print("|---|---|---|")
-          for comp in d["components"]:
-              print(f"| {comp['name']} | {comp['version']} | {comp['license']} |")
-          print()
-          print(f"**Requires** kernel {c.get('kernel_min')}+, Kubernetes {c.get('kubernetes')}.")
-          if c.get("notes"):
-              print(f"\n{c['notes']}")
-          for key, title in (("breaking_changes", "Breaking changes"), ("highlights", "Highlights")):
-              items = d.get(key) or []
-              if items:
-                  print(f"\n## {title}\n")
-                  for it in items:
-                      print(f"- {it}")
-          PY
-            echo
-            echo "## Per-component release notes"
-            while IFS=$'\t' read -r repo version _; do
-              echo
-              echo "### ${repo} v${version}"
-              echo
-              if ! gh release view "v${version}" --repo "$repo" --json body -q .body 2>/dev/null; then
-                echo "_No release notes published._"
-              fi
-            done < <(python3 -c "
-          import sys, yaml
-          for c in yaml.safe_load(open(sys.argv[1]))['components']:
-              print(f\"{c['repo']}\t{c['version']}\")
-          " "$MANIFEST")
-          } > "$OUT"
-          echo "----- $OUT -----"
-          head -40 "$OUT"
+          python3 repo/scripts/aggregate-changelog.py "$MANIFEST" \
+            --changelog-dir repo/changelogs \
+            --output "CHANGELOG-${REL}.md"
+          echo "----- CHANGELOG-${REL}.md -----"
+          head -40 "CHANGELOG-${REL}.md"
 
       # Collect each image's SBOM — verified against that component's own
       # source repository, which the manifest is what tells us.

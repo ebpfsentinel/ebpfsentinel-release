@@ -23,7 +23,8 @@ ${ORG}/ebpfsentinel
 ${ORG}/ebpfsentinel-enterprise
 ${ORG}/ebpfsentinel-operator
 ${ORG}/ebpfsentinel-dashboard
-${ORG}/ebpfsentinel-release}"
+${ORG}/ebpfsentinel-release
+${ORG}/anomstream}"
 
 # SOURCE_REPO=<owner>/<repo> pins one exact origin. Unset means "any of the
 # repositories listed above", which is still a closed set.

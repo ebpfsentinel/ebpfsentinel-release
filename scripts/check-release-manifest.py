@@ -4,6 +4,8 @@
     check-release-manifest.py <releases/<version>.yaml> [...]
     check-release-manifest.py --images <manifest>     # emit image:tag refs, one per line
     check-release-manifest.py --binaries <manifest>   # emit repo<TAB>version<TAB>tarball<TAB>binary
+    check-release-manifest.py --crates <manifest>     # emit crate<TAB>version
+    check-release-manifest.py --components <manifest> # emit name<TAB>repo<TAB>version
 
 Seven repositories ship as one product. Which versions belong together is a
 fact that otherwise lives only in someone's head or in a chat message, and the
@@ -14,6 +16,12 @@ nobody remembered to add.
 So the release is declared once, here, and the signing workflows read it. That
 also means a component missing from a release is a validation error rather
 than a silent omission from the signed inventory.
+
+The changelogs live here too (`changelogs/<name>.md`), so this script also
+checks that every component the manifest declares actually has release notes
+for the version it declares. A release that ships without notes for one of its
+components is a release a customer cannot read, and the failure is silent
+otherwise: the aggregation would simply print an empty section.
 
 Exit 0 = valid, 1 = invalid, 2 = usage/parse error.
 """
@@ -34,6 +42,35 @@ RELEASE_RE = re.compile(r"^\d{4}\.(?:[1-9]|1[0-2])\.\d+$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 IMAGE_RE = re.compile(r"^[a-z0-9.-]+(:[0-9]+)?(/[a-z0-9._-]+)+$")
+CRATE_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
+
+
+def changelog_errors(doc: dict, changelog_dir: Path) -> list[str]:
+    """Every declared component must have release notes for its version.
+
+    Checked here rather than in the aggregation step: at aggregation time the
+    release is already being signed, and the only signal a missing section
+    gives is an empty heading nobody reads.
+    """
+    errs: list[str] = []
+    for c in doc.get("components") or []:
+        if not isinstance(c, dict):
+            continue
+        name, version = c.get("name"), c.get("version")
+        if not name or not version:
+            continue  # already reported by validate()
+        path = changelog_dir / f"{name}.md"
+        if not path.is_file():
+            errs.append(f"component {name}: no changelog at {path}")
+            continue
+        heading = re.compile(rf"^## \[{re.escape(str(version))}\]", re.MULTILINE)
+        if not heading.search(path.read_text()):
+            errs.append(
+                f"component {name}: {path} has no '## [{version}]' section — "
+                "rename [Unreleased] when declaring the release"
+            )
+    return errs
 
 
 def validate(doc: dict, path: Path) -> list[str]:
@@ -73,6 +110,10 @@ def validate(doc: dict, path: Path) -> list[str]:
         name = c.get("name", "")
         if not name:
             errs.append(f"{where}: missing name")
+        elif not NAME_RE.match(str(name)):
+            # The name selects a changelog file and an SBOM filename, so keep
+            # it to something that cannot escape a directory.
+            errs.append(f"{where}: name must match {NAME_RE.pattern}, got {name!r}")
         elif name in seen:
             errs.append(f"{where}: duplicate component name {name!r}")
         else:
@@ -94,8 +135,21 @@ def validate(doc: dict, path: Path) -> list[str]:
         if not isinstance(binaries, list):
             errs.append(f"{where}: binaries must be a list")
             binaries = []
-        if not image and not binaries:
-            errs.append(f"{where}: declares neither an image nor binaries — nothing to measure")
+
+        # A component can also ship as crates.io packages and nothing else —
+        # measured from the registry's own checksum for the published version.
+        crates = c.get("crates", [])
+        if not isinstance(crates, list):
+            errs.append(f"{where}: crates must be a list of crate names")
+            crates = []
+        for crate in crates:
+            if not CRATE_RE.match(str(crate)):
+                errs.append(f"{where}: invalid crate name {crate!r}")
+
+        if not image and not binaries and not crates:
+            errs.append(
+                f"{where}: declares neither an image, binaries nor crates — nothing to measure"
+            )
 
         for b in binaries:
             if not isinstance(b, dict):
@@ -140,26 +194,59 @@ def load(path: Path) -> dict:
     return doc
 
 
+def default_changelog_dir(manifest: Path) -> Path:
+    # releases/<version>.yaml -> ../changelogs
+    return manifest.resolve().parent.parent / "changelogs"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(add_help=True)
     ap.add_argument("manifests", nargs="+", type=Path)
+    ap.add_argument(
+        "--changelog-dir",
+        type=Path,
+        default=None,
+        help="where changelogs/<component>.md live (default: sibling of releases/)",
+    )
+    ap.add_argument(
+        "--no-changelog-check",
+        action="store_true",
+        help="skip the per-component release-notes check",
+    )
     group = ap.add_mutually_exclusive_group()
     group.add_argument("--images", action="store_true", help="emit image:tag refs")
     group.add_argument("--binaries", action="store_true", help="emit binary download rows")
+    group.add_argument("--crates", action="store_true", help="emit crate<TAB>version rows")
+    group.add_argument(
+        "--components", action="store_true", help="emit name<TAB>repo<TAB>version rows"
+    )
     args = ap.parse_args()
 
-    if args.images or args.binaries:
+    def check(path: Path, doc: dict) -> list[str]:
+        errs = validate(doc, path)
+        if not args.no_changelog_check:
+            errs += changelog_errors(doc, args.changelog_dir or default_changelog_dir(path))
+        return errs
+
+    emitting = args.images or args.binaries or args.crates or args.components
+    if emitting:
         if len(args.manifests) != 1:
-            sys.exit("error: --images/--binaries take exactly one manifest")
-        doc = load(args.manifests[0])
-        errs = validate(doc, args.manifests[0])
+            sys.exit("error: the emitting flags take exactly one manifest")
+        manifest = args.manifests[0]
+        doc = load(manifest)
+        errs = check(manifest, doc)
         if errs:
             for e in errs:
                 print(f"  - {e}", file=sys.stderr)
             return 1
         for c in doc["components"]:
+            if args.components:
+                print("\t".join([c["name"], c["repo"], str(c["version"])]))
             if args.images and c.get("image"):
                 print(f"{c['image']}:{c['version']}")
+            if args.crates:
+                for crate in c.get("crates", []):
+                    print("\t".join([str(crate), str(c["version"])]))
             if args.binaries:
                 for b in c.get("binaries", []):
                     for arch in b["arches"]:
@@ -169,14 +256,14 @@ def main() -> int:
 
     failed = False
     for path in args.manifests:
-        errs = validate(load(path), path)
+        doc = load(path)
+        errs = check(path, doc)
         if errs:
             failed = True
             print(f"release-manifest: {path} is invalid")
             for e in errs:
                 print(f"  - {e}")
         else:
-            doc = load(path)
             print(
                 f"release-manifest: {path} valid "
                 f"({doc['release']}, {len(doc['components'])} components, {doc['status']})"

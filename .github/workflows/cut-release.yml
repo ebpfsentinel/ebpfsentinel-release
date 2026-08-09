@@ -1,0 +1,264 @@
+# Cut a release of the whole product, from here.
+#
+# The component repositories build and sign; this repository decides what a
+# release is and is the only place one is published. That split exists because
+# a customer who has to visit five repositories to assemble one deployment has
+# no way to tell which combination we actually tested.
+#
+# What this does, given releases/<version>.yaml:
+#   1. validates the manifest and the per-component changelogs
+#   2. dispatches each component's release workflow at the version declared
+#      for it, and waits for all of them
+#   3. pulls the build artifacts back out of those runs
+#   4. publishes ONE draft release v<version> here, with the aggregated notes
+#
+# Artifacts are pulled, not pushed: the alternative is a token with write
+# access to this repository living in five other repositories' secrets, which
+# is a far larger blast radius than one token that can only read runs.
+#
+# After publishing the draft, run issue-measurements.yml for the same version
+# to produce the signed inventory.
+name: Cut release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Product version to cut (must have releases/<version>.yaml)"
+        required: true
+        type: string
+      only:
+        description: "Optional comma-separated component names to (re)build; default all"
+        required: false
+        type: string
+      draft:
+        description: "Publish as a draft (uncheck only when re-cutting a reviewed release)"
+        required: false
+        default: true
+        type: boolean
+
+permissions: {}
+
+env:
+  # Dispatching a workflow in another repository and reading its run artifacts
+  # needs actions:write + contents:read there, which GITHUB_TOKEN never has.
+  ORCHESTRATION_TOKEN: ${{ secrets.RELEASE_ORCHESTRATION_TOKEN }}
+
+jobs:
+  cut:
+    name: Cut ${{ inputs.release }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # the one release we publish
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check secrets
+        run: |
+          set -euo pipefail
+          if [ -z "${ORCHESTRATION_TOKEN}" ]; then
+            echo "::error::RELEASE_ORCHESTRATION_TOKEN is not set — it needs actions:write and contents:read on every component repository"
+            exit 1
+          fi
+
+      - name: Validate release input
+        env:
+          REL: ${{ inputs.release }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$REL" | grep -qE '^[0-9]{4}\.(1[0-2]|[1-9])\.[0-9]+$'; then
+            echo "::error::release must be YYYY.M.X, got: $REL"
+            exit 1
+          fi
+          test -f "releases/${REL}.yaml" || {
+            echo "::error::releases/${REL}.yaml does not exist — declare the release before cutting it"
+            exit 1
+          }
+
+      - name: Install tooling
+        run: pip install --quiet pyyaml
+
+      # Refuses a manifest whose components have no notes for the version they
+      # declare, before anything is built. A release nobody can read is caught
+      # cheaply here and expensively after five builds.
+      - name: Validate manifest and changelogs
+        id: manifest
+        env:
+          REL: ${{ inputs.release }}
+        run: |
+          set -euo pipefail
+          MANIFEST="releases/${REL}.yaml"
+          ./scripts/check-release-manifest.py "$MANIFEST"
+          ./scripts/check-release-manifest.py --components "$MANIFEST" > components.tsv
+          ./scripts/check-release-manifest.py --binaries "$MANIFEST" > binaries.tsv
+          echo "manifest=${MANIFEST}" >> "$GITHUB_OUTPUT"
+          cat components.tsv
+
+      - name: Aggregate release notes
+        env:
+          REL: ${{ inputs.release }}
+          MANIFEST: ${{ steps.manifest.outputs.manifest }}
+        run: |
+          set -euo pipefail
+          ./scripts/aggregate-changelog.py "$MANIFEST" --output release-notes.md
+          cat release-notes.md
+
+      # One dispatch per component, then one wait for all of them. Each run is
+      # located by the tracking id this job stamps into its run-name: a
+      # dispatch returns no run id, and picking "the newest run" would happily
+      # attach somebody else's concurrent build to this release.
+      - name: Dispatch component builds
+        id: dispatch
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_ORCHESTRATION_TOKEN }}
+          ONLY: ${{ inputs.only }}
+        run: |
+          set -euo pipefail
+          TRACK="cut-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "track=${TRACK}" >> "$GITHUB_OUTPUT"
+          : > dispatched.tsv
+
+          while IFS="$(printf '\t')" read -r name repo version; do
+            [ -z "$name" ] && continue
+            if [ -n "$ONLY" ] && ! printf '%s' ",${ONLY}," | grep -qF ",${name},"; then
+              echo "skipping ${name} (not in 'only')"
+              continue
+            fi
+            wf="$(gh api "repos/${repo}/actions/workflows" \
+                    --jq '.workflows[] | select(.path | test("/release\\.ya?ml$")) | .path' \
+                  | head -n1)"
+            if [ -z "$wf" ]; then
+              echo "::error::${repo} has no release workflow"
+              exit 1
+            fi
+            wf="${wf##*/}"
+            echo "dispatching ${repo} ${wf} version=${version}"
+            gh workflow run "$wf" --repo "$repo" \
+              --field "version=${version}" \
+              --field "tracking-id=${TRACK}"
+            printf '%s\t%s\t%s\t%s\n' "$name" "$repo" "$version" "$wf" >> dispatched.tsv
+          done < components.tsv
+
+          if [ ! -s dispatched.tsv ]; then
+            echo "::error::nothing was dispatched — check the 'only' filter"
+            exit 1
+          fi
+
+      - name: Wait for component builds
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_ORCHESTRATION_TOKEN }}
+          TRACK: ${{ steps.dispatch.outputs.track }}
+        run: |
+          set -euo pipefail
+          : > runs.tsv
+          failed=0
+
+          while IFS="$(printf '\t')" read -r name repo version wf; do
+            [ -z "$name" ] && continue
+            echo "::group::${name} (${repo})"
+
+            # The run appears a few seconds after the dispatch is accepted.
+            run_id=""
+            for _ in $(seq 1 30); do
+              run_id="$(gh run list --repo "$repo" --workflow "$wf" --limit 30 \
+                          --json databaseId,displayTitle \
+                          --jq "[.[] | select(.displayTitle | contains(\"${TRACK}\"))] | first | .databaseId // empty")"
+              [ -n "$run_id" ] && break
+              sleep 10
+            done
+            if [ -z "$run_id" ]; then
+              echo "::error::${repo}: no run carrying ${TRACK} appeared within 5 minutes"
+              failed=1
+              echo "::endgroup::"
+              continue
+            fi
+
+            echo "watching ${repo} run ${run_id}"
+            gh run watch "$run_id" --repo "$repo" --exit-status --interval 30 || true
+            concl="$(gh run view "$run_id" --repo "$repo" --json conclusion --jq '.conclusion')"
+            echo "${repo} run ${run_id}: ${concl}"
+            if [ "$concl" != "success" ]; then
+              echo "::error::${name} build ${concl} — https://github.com/${repo}/actions/runs/${run_id}"
+              failed=1
+            fi
+            printf '%s\t%s\t%s\n' "$name" "$repo" "$run_id" >> runs.tsv
+            echo "::endgroup::"
+          done < dispatched.tsv
+
+          [ "$failed" -eq 0 ] || exit 1
+
+      # Only components that declare binaries produce a bundle; an image-only
+      # or crates-only component is measured from the registry instead, so a
+      # missing artifact there is expected rather than a failure.
+      - name: Collect build artifacts
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_ORCHESTRATION_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          while IFS="$(printf '\t')" read -r name repo run_id; do
+            [ -z "$name" ] && continue
+            if ! cut -f1 binaries.tsv | grep -qxF "$repo"; then
+              echo "${name}: no binaries declared, nothing to attach"
+              continue
+            fi
+            echo "::group::${name} artifacts"
+            for artifact in release-bundle release-bundle-signatures; do
+              if ! gh run download "$run_id" --repo "$repo" --name "$artifact" --dir assets; then
+                echo "::error::${repo} run ${run_id} has no ${artifact} artifact"
+                exit 1
+              fi
+            done
+            echo "::endgroup::"
+          done < runs.tsv
+
+          # Every tarball the manifest promises must be here, or the release
+          # ships an inventory it cannot back up and issue-measurements.yml
+          # fails afterwards, once the release is already public.
+          missing=0
+          while IFS="$(printf '\t')" read -r _repo _version tarball _bin _arch; do
+            [ -z "$tarball" ] && continue
+            if [ ! -f "assets/${tarball}" ]; then
+              echo "::error::${tarball} declared in the manifest was not produced by any build"
+              missing=1
+            fi
+          done < binaries.tsv
+          [ "$missing" -eq 0 ] || exit 1
+
+          ls -la assets
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          REL: ${{ inputs.release }}
+          DRAFT: ${{ inputs.draft }}
+          MANIFEST: ${{ steps.manifest.outputs.manifest }}
+        run: |
+          set -euo pipefail
+          cp "$MANIFEST" "assets/release-${REL}.yaml"
+          args=(--title "eBPFsentinel ${REL}" --notes-file release-notes.md)
+          if [ "$DRAFT" = "true" ]; then
+            args+=(--draft)
+          fi
+
+          if gh release view "v${REL}" >/dev/null 2>&1; then
+            echo "v${REL} exists — replacing its assets"
+            gh release upload "v${REL}" assets/* --clobber
+            gh release edit "v${REL}" "${args[@]}"
+          else
+            gh release create "v${REL}" assets/* "${args[@]}"
+          fi
+
+      - name: Next step
+        env:
+          REL: ${{ inputs.release }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### eBPFsentinel ${REL} cut"
+            echo
+            echo "Release drafted at https://github.com/${GITHUB_REPOSITORY}/releases/tag/v${REL}"
+            echo
+            echo "Now run **Issue measurements** for \`${REL}\` to produce the signed inventory."
+          } >> "$GITHUB_STEP_SUMMARY"
