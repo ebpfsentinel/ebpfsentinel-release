@@ -76,10 +76,10 @@ carry no release tags and any inference would restart at `.1` every month and
 disagree with the manifest. Running it by hand produces the same signed
 artifacts; it just does not publish them.
 
-Desktop installers (`tauri-release.yml` in the dashboard) are the one thing not
-yet in the signed inventory: they are `.deb` / `.dmg` / `.msi` rather than the
-arch-templated tarballs the manifest describes. Attach them by hand until that
-is reconciled.
+Everything shipped is Linux: the agent only runs there, and the console is
+reached through a browser. The dashboard's desktop shell (`crates/dashboard-tauri`)
+is not released — it stays buildable from source, but no installer is produced,
+signed or measured.
 
 ## Status
 
