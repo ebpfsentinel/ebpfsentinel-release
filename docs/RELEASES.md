@@ -77,9 +77,9 @@ disagree with the manifest. Running it by hand produces the same signed
 artifacts; it just does not publish them.
 
 Everything shipped is Linux: the agent only runs there, and the console is
-reached through a browser. The dashboard's desktop shell (`crates/dashboard-tauri`)
-is not released — it stays buildable from source, but no installer is produced,
-signed or measured.
+reached through a browser. There is no desktop client: the Tauri shell that
+once wrapped the dashboard has been deleted, so there is no installer to
+build, sign or measure.
 
 ## Status
 
