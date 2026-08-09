@@ -208,11 +208,18 @@ jobs:
           # is the measurement that means something for a crates.io component.
           while IFS=$'\t' read -r crate version; do
             [ -z "$crate" ] && continue
-            sum="$(curl -fsSL "https://crates.io/api/v1/crates/${crate}/${version}" \
-                   -H 'User-Agent: ebpfsentinel-release (measurements)' \
-                   | jq -r '.version.checksum')"
+            meta="$(curl -fsSL "https://crates.io/api/v1/crates/${crate}/${version}" \
+                    -H 'User-Agent: ebpfsentinel-release (measurements)')"
+            sum="$(printf '%s' "$meta" | jq -r '.version.checksum')"
             if [ -z "$sum" ] || [ "$sum" = "null" ]; then
               echo "::error::crates.io has no checksum for ${crate} ${version} — is it published?"
+              exit 1
+            fi
+            # A yanked version still answers with a checksum, but no dependent
+            # can resolve it. Signing one would put a version in the inventory
+            # that a customer's build refuses to use.
+            if [ "$(printf '%s' "$meta" | jq -r '.version.yanked')" = "true" ]; then
+              echo "::error::${crate} ${version} is yanked on crates.io — publish a new version before releasing"
               exit 1
             fi
             add "crates.io/${crate}" crate "$sum"

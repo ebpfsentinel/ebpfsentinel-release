@@ -43,6 +43,10 @@ uses calendar versioning (`YYYY.M.X`).
 
 ## [2026.4.1] - 2026-04-26
 
+**Yanked on crates.io.** It predates the move to a single coordinated
+release, and its version does not correspond to any release published from
+`ebpfsentinel-release`. Depend on the next published version instead.
+
 First public release of the **anomstream** workspace — `anomstream-core`
 + `anomstream-triage` + `anomstream-hotpath` + the `anomstream` meta
 facade. The crate was previously developed as `rcf-rs` →
