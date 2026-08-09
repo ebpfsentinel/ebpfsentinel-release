@@ -1,12 +1,17 @@
 # ebpfsentinel-release
 
-Single trust anchor for eBPFsentinel supply-chain integrity. Centralizes
-artifact signing so every published image and binary is signed, digest-
-pinned, and unusable if modified — without exposing the private product
-repos.
+Where eBPFsentinel is released, and the single trust anchor for its
+supply-chain integrity. Every published image and binary is signed here,
+digest-pinned, and unusable if modified.
 
+The product repositories build and sign; **this is the only one that
+publishes**. One release, one changelog, one compatibility matrix — a customer
+should not have to visit five repositories to work out which versions belong
+together.
+
+- **Cutting a release**: [`docs/RELEASES.md`](docs/RELEASES.md)
+- **Release notes, per component**: [`changelogs/`](changelogs/README.md)
 - **Consumer enforcement runbook**: [`docs/CONSUMER-ENFORCEMENT.md`](docs/CONSUMER-ENFORCEMENT.md)
-- **Cutting a cross-repo release**: [`docs/RELEASES.md`](docs/RELEASES.md)
 - **Consumer verification**: [`policy/cosign-public.md`](policy/cosign-public.md)
 - **Reporting a vulnerability**: [`SECURITY.md`](SECURITY.md)
 - **How this repo itself is protected**: [`docs/REPO-HARDENING.md`](docs/REPO-HARDENING.md)
@@ -23,12 +28,15 @@ Operational workflows run from here, not from product repos:
 
 | Workflow | Purpose |
 |---|---|
-| [`.github/workflows/issue-measurements.yml`](.github/workflows/issue-measurements.yml) | dual-sign the release measurements manifest, aggregate changelog + SBOMs, driven by [`releases/<version>.yaml`](releases/TEMPLATE.yaml) |
+| [`.github/workflows/cut-release.yml`](.github/workflows/cut-release.yml) | build every component at the versions [`releases/<version>.yaml`](releases/TEMPLATE.yaml) declares, then publish the one release |
+| [`.github/workflows/issue-measurements.yml`](.github/workflows/issue-measurements.yml) | dual-sign the release measurements manifest, aggregate changelog + SBOMs, driven by the same manifest |
 | [`.github/workflows/issue-revocations.yml`](.github/workflows/issue-revocations.yml) | publish the dual-signed revocation list |
 | [`.github/workflows/acceptance.yml`](.github/workflows/acceptance.yml) | prove tamper is rejected at every layer |
 | [`.github/workflows/guard.yml`](.github/workflows/guard.yml) | fail the PR when a repo invariant drifts ([`scripts/guard.sh`](scripts/guard.sh)) |
 
-Product repos call these after their build step, e.g.:
+Product repos call the signing workflows after their build step. They no longer
+create releases of their own — `cut-release.yml` dispatches their `release.yml`
+and collects the artifacts. Example:
 
 ```yaml
 jobs:
