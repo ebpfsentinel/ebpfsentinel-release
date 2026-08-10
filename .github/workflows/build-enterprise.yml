@@ -1,0 +1,357 @@
+# Builds, pushes and signs the Enterprise agent from THIS repository.
+#
+# Enterprise binaries and images are published publicly and on purpose: a
+# customer has to be able to download and verify them without asking anyone.
+# The licence gates features at runtime, not the download.
+#
+# The enterprise crates depend on the OSS ones through `../ebpfsentinel/crates/*`
+# path deps, so this workflow checks out both components at the commits the
+# release manifest pins and lays them out as siblings.
+name: build-enterprise
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "Version to stamp and publish (YYYY.M.X)"
+        required: true
+        type: string
+      ref:
+        description: "Commit sha in ebpfsentinel/ebpfsentinel-enterprise to build"
+        required: true
+        type: string
+      oss-ref:
+        description: "Commit sha of the OSS agent the path deps resolve against"
+        required: true
+        type: string
+      push:
+        description: "Push images to GHCR (off for a dry run)"
+        required: false
+        default: true
+        type: boolean
+    outputs:
+      bundle-artifact:
+        description: "Artifact holding the release tarballs"
+        value: enterprise-bundle
+
+permissions: {}
+
+env:
+  CARGO_TERM_COLOR: always
+  REGISTRY: ghcr.io
+  COMPONENT_REPO: ebpfsentinel/ebpfsentinel-enterprise
+  OSS_REPO_URL: https://github.com/ebpfsentinel/ebpfsentinel.git
+  IMAGE: ghcr.io/ebpfsentinel/ebpfsentinel-enterprise
+  WARDEN_IMAGE: ghcr.io/ebpfsentinel/ebpfsentinel-enterprise-warden
+  IMAGE_DESCRIPTION: eBPFsentinel Enterprise agent (licence-gated features on the OSS core)
+  WARDEN_DESCRIPTION: Privileged kernel-operation control plane for a rootless eBPFsentinel Enterprise agent
+  LICENSE: LicenseRef-Proprietary
+
+jobs:
+  # ── Release tarballs, one per architecture ────────────────────────
+  build-release:
+    name: Build ${{ inputs.version }} (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+    steps:
+      # Siblings under the workspace root, which is what `../ebpfsentinel/crates/*`
+      # in the enterprise manifests resolves to. Both at the commit the release
+      # manifest pins, so the enterprise binary is built against the same OSS
+      # tree the release publishes.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ebpfsentinel/ebpfsentinel-enterprise
+          ref: ${{ inputs.ref }}
+          path: enterprise
+          token: ${{ secrets.COMPONENT_CHECKOUT_TOKEN }}
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ebpfsentinel/ebpfsentinel
+          ref: ${{ inputs.oss-ref }}
+          path: ebpfsentinel
+          token: ${{ secrets.COMPONENT_CHECKOUT_TOKEN || github.token }}
+
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: enterprise
+          shared-key: enterprise-release-${{ matrix.arch }}
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y \
+            protobuf-compiler musl-tools llvm-dev flex bison wget \
+            cmake ragel libboost-dev pkg-config g++
+
+      - name: Build static libpcap (musl)
+        run: |
+          PCAP_VERSION=1.10.6
+          PCAP_SHA256="ec97d1206bdd19cb6bdd043eaa9f0037aa732262ec68e070fd7c7b5f834d5dfc"
+          wget -qO /tmp/libpcap.tar.xz "https://www.tcpdump.org/release/libpcap-${PCAP_VERSION}.tar.xz"
+          echo "${PCAP_SHA256}  /tmp/libpcap.tar.xz" | sha256sum -c -
+          tar xJf /tmp/libpcap.tar.xz -C /tmp && rm -f /tmp/libpcap.tar.xz
+          cd "/tmp/libpcap-${PCAP_VERSION}"
+          CC=musl-gcc ./configure --disable-shared --prefix=/usr/local/musl
+          make -j"$(nproc)"
+          sudo make install
+
+      # Stamps every Cargo.toml under the workspace root, which is both
+      # checkouts: the enterprise binary would otherwise report the OSS core's
+      # placeholder version.
+      - uses: ./enterprise/.github/actions/stamp-version
+        with:
+          version: ${{ inputs.version }}
+
+      - name: Build release binaries
+        working-directory: enterprise
+        env:
+          LIBPCAP_LIBDIR: /usr/local/musl/lib
+          RUSTFLAGS: "-L native=/usr/local/musl/lib"
+          # Build Vectorscan from source rather than linking a system copy: the
+          # runner has none, and a musl static binary cannot use one anyway.
+          VECTORSCAN_SYSTEM: ""
+        run: |
+          cargo build --release --target ${{ matrix.target }} \
+            --bin ebpfsentinel-enterprise-agent \
+            --bin ebpfsentinel-license
+
+      - name: Create release tarball
+        env:
+          VERSION: ${{ inputs.version }}
+          ARCH: ${{ matrix.arch }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          STAGING="ebpfsentinel-enterprise-${VERSION}-linux-${ARCH}"
+          mkdir -p "${STAGING}"
+          cp "enterprise/target/${TARGET}/release/ebpfsentinel-enterprise-agent" "${STAGING}/"
+          cp "enterprise/target/${TARGET}/release/ebpfsentinel-license" "${STAGING}/"
+          cp enterprise/LICENSE "${STAGING}/"
+          tar czf "${STAGING}.tar.gz" "${STAGING}"
+          echo "TARBALL=${STAGING}.tar.gz" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: enterprise-release-${{ matrix.arch }}
+          path: ${{ env.TARBALL }}
+          retention-days: 30
+
+  bundle:
+    name: Bundle artifacts
+    needs: [build-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: bundle
+          pattern: enterprise-release-*
+          merge-multiple: true
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: enterprise-bundle
+          path: bundle/
+          retention-days: 7
+
+  # The full remote form is deliberate even from inside this repository:
+  # Sigstore records the CALLED ref as the certificate subject, and every
+  # published policy pins @refs/tags/v*.
+  sign-blobs:
+    name: Sign blobs
+    needs: [bundle]
+    permissions:
+      id-token: write
+      contents: read
+      attestations: write
+    uses: ebpfsentinel/ebpfsentinel-release/.github/workflows/sign-blob.yml@v1
+    with:
+      artifact-name: enterprise-bundle
+
+  # ── Per-platform images ───────────────────────────────────────────
+  #
+  # The split image pair, same as OSS: a rootless enterprise agent plus the
+  # privileged warden that delegates it a bpffs. Both Dockerfiles fetch the OSS
+  # tree themselves at OSS_REF, so the pinned commit reaches the image build the
+  # same way it reaches the binary build above.
+  build-images:
+    name: Image ${{ matrix.component }} (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [agent, warden]
+        platform: [linux/amd64, linux/arm64]
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+          - component: agent
+            dockerfile: Dockerfile.agent
+            suffix: ""
+            title: eBPFsentinel Enterprise
+          - component: warden
+            dockerfile: Dockerfile.warden
+            suffix: "-warden"
+            title: eBPFsentinel Enterprise warden
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ebpfsentinel/ebpfsentinel-enterprise
+          ref: ${{ inputs.ref }}
+          path: src
+          token: ${{ secrets.COMPONENT_CHECKOUT_TOKEN }}
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract platform architecture
+        run: echo "PLATFORM_ARCH=${platform##*/}" >> "$GITHUB_ENV"
+        env:
+          platform: ${{ matrix.platform }}
+
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - uses: ./src/.github/actions/stamp-version
+        with:
+          version: ${{ inputs.version }}
+
+      - name: Generate metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}${{ matrix.suffix }}
+          tags: |
+            type=raw,value=${{ inputs.version }}-${{ env.PLATFORM_ARCH }}
+          labels: |
+            org.opencontainers.image.title=${{ matrix.title }}
+            org.opencontainers.image.description=${{ matrix.component == 'agent' && env.IMAGE_DESCRIPTION || env.WARDEN_DESCRIPTION }} (${{ env.PLATFORM_ARCH }})
+            org.opencontainers.image.version=${{ inputs.version }}
+            org.opencontainers.image.vendor=eBPFsentinel
+            org.opencontainers.image.licenses=${{ env.LICENSE }}
+            org.opencontainers.image.source=https://github.com/${{ env.COMPONENT_REPO }}
+            org.opencontainers.image.documentation=https://github.com/ebpfsentinel/ebpfsentinel-docs
+            org.opencontainers.image.revision=${{ inputs.ref }}
+
+      - name: Build and push platform image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        env:
+          DOCKER_BUILD_SUMMARY: false
+        with:
+          context: src
+          file: src/${{ matrix.dockerfile }}
+          platforms: ${{ matrix.platform }}
+          push: ${{ inputs.push }}
+          provenance: false
+          sbom: false
+          build-args: |
+            VERSION=${{ inputs.version }}
+            OSS_REPO=${{ env.OSS_REPO_URL }}
+            OSS_REF=${{ inputs.oss-ref }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=enterprise-${{ matrix.component }}-${{ env.PLATFORM_ARCH }}
+          cache-to: type=gha,scope=enterprise-${{ matrix.component }}-${{ env.PLATFORM_ARCH }},mode=max
+          outputs: type=image,oci-mediatypes=true
+
+  # Both images in one job rather than a matrix: the signing jobs below need a
+  # digest per image, and matrix job outputs are last-writer-wins.
+  create-manifest:
+    name: Multi-arch manifests
+    needs: [build-images]
+    if: inputs.push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      agent_image: ${{ steps.manifests.outputs.agent_image }}
+      agent_digest: ${{ steps.manifests.outputs.agent_digest }}
+      warden_image: ${{ steps.manifests.outputs.warden_image }}
+      warden_digest: ${{ steps.manifests.outputs.warden_digest }}
+    steps:
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Create and push multi-arch manifests
+        id: manifests
+        env:
+          VERSION: ${{ inputs.version }}
+          AGENT_IMAGE: ${{ env.IMAGE }}
+          WARDEN_IMAGE: ${{ env.WARDEN_IMAGE }}
+          AGENT_DESCRIPTION: ${{ env.IMAGE_DESCRIPTION }}
+          WARDEN_DESCRIPTION: ${{ env.WARDEN_DESCRIPTION }}
+          SOURCE: https://github.com/${{ env.COMPONENT_REPO }}
+          LICENSE: ${{ env.LICENSE }}
+        run: |
+          set -euo pipefail
+          for component in agent warden; do
+            case "$component" in
+              agent)  image="${AGENT_IMAGE}";  description="${AGENT_DESCRIPTION}" ;;
+              warden) image="${WARDEN_IMAGE}"; description="${WARDEN_DESCRIPTION}" ;;
+            esac
+
+            docker buildx imagetools create \
+              -t "${image}:${VERSION}" \
+              -t "${image}:latest" \
+              --annotation="index:org.opencontainers.image.description=${description}" \
+              --annotation="index:org.opencontainers.image.source=${SOURCE}" \
+              --annotation="index:org.opencontainers.image.licenses=${LICENSE}" \
+              "${image}:${VERSION}-amd64" \
+              "${image}:${VERSION}-arm64"
+
+            digest="$(docker buildx imagetools inspect "${image}:${VERSION}" --format '{{.Manifest.Digest}}')"
+            echo "${component}_image=${image}" >> "$GITHUB_OUTPUT"
+            echo "${component}_digest=${digest}" >> "$GITHUB_OUTPUT"
+            echo "${component}: ${image}@${digest}"
+          done
+
+  sign:
+    name: Sign agent image
+    needs: [create-manifest]
+    permissions:
+      id-token: write
+      packages: write
+      contents: read
+    uses: ebpfsentinel/ebpfsentinel-release/.github/workflows/sign-image.yml@v1
+    with:
+      image: ${{ needs.create-manifest.outputs.agent_image }}
+      digest: ${{ needs.create-manifest.outputs.agent_digest }}
+
+  sign-warden:
+    name: Sign warden image
+    needs: [create-manifest]
+    permissions:
+      id-token: write
+      packages: write
+      contents: read
+    uses: ebpfsentinel/ebpfsentinel-release/.github/workflows/sign-image.yml@v1
+    with:
+      image: ${{ needs.create-manifest.outputs.warden_image }}
+      digest: ${{ needs.create-manifest.outputs.warden_digest }}

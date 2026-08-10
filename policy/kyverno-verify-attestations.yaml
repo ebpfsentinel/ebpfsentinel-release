@@ -12,9 +12,11 @@
 # image signed and scanned two years ago satisfies "has a scan attestation"
 # forever — a check that reports success while telling you nothing.
 #
-# Attestor entries are written out in full rather than shared via a YAML
-# anchor. This is a policy customers apply and auditors read; it should not
-# require resolving merge keys to see which repositories are trusted.
+# The attestor pins `githubWorkflowRepository`, the Fulcio extension recording
+# which repository asked for the signature. The subject alone would not: any
+# repository calling our public reusable workflow gets a certificate with the
+# same subject. Every image is built and signed by cut-release.yml in
+# ebpfsentinel-release, so there is exactly one caller to allow.
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
@@ -27,8 +29,8 @@ metadata:
     policies.kyverno.io/description: >-
       Requires every ghcr.io/ebpfsentinel/* image to carry an SPDX SBOM
       attestation and a vulnerability-scan attestation no older than 30 days,
-      both signed by the eBPFsentinel release identity and issued from an
-      authorized source repository.
+      both signed by the eBPFsentinel release identity from the
+      ebpfsentinel-release repository.
 spec:
   validationFailureAction: Enforce
   background: false
@@ -59,28 +61,7 @@ spec:
                         subject: "https://github.com/ebpfsentinel/ebpfsentinel-release/.github/workflows/sign-image.yml@refs/tags/v*"
                         issuer: "https://token.actions.githubusercontent.com"
                         additionalExtensions:
-                          githubWorkflowRepository: ebpfsentinel/ebpfsentinel
-                      ctlog:
-                        ignoreSCT: false
-                    - keyless:
-                        subject: "https://github.com/ebpfsentinel/ebpfsentinel-release/.github/workflows/sign-image.yml@refs/tags/v*"
-                        issuer: "https://token.actions.githubusercontent.com"
-                        additionalExtensions:
-                          githubWorkflowRepository: ebpfsentinel/ebpfsentinel-enterprise
-                      ctlog:
-                        ignoreSCT: false
-                    - keyless:
-                        subject: "https://github.com/ebpfsentinel/ebpfsentinel-release/.github/workflows/sign-image.yml@refs/tags/v*"
-                        issuer: "https://token.actions.githubusercontent.com"
-                        additionalExtensions:
-                          githubWorkflowRepository: ebpfsentinel/ebpfsentinel-operator
-                      ctlog:
-                        ignoreSCT: false
-                    - keyless:
-                        subject: "https://github.com/ebpfsentinel/ebpfsentinel-release/.github/workflows/sign-image.yml@refs/tags/v*"
-                        issuer: "https://token.actions.githubusercontent.com"
-                        additionalExtensions:
-                          githubWorkflowRepository: ebpfsentinel/ebpfsentinel-dashboard
+                          githubWorkflowRepository: ebpfsentinel/ebpfsentinel-release
                       ctlog:
                         ignoreSCT: false
 
@@ -105,28 +86,7 @@ spec:
                         subject: "https://github.com/ebpfsentinel/ebpfsentinel-release/.github/workflows/sign-image.yml@refs/tags/v*"
                         issuer: "https://token.actions.githubusercontent.com"
                         additionalExtensions:
-                          githubWorkflowRepository: ebpfsentinel/ebpfsentinel
-                      ctlog:
-                        ignoreSCT: false
-                    - keyless:
-                        subject: "https://github.com/ebpfsentinel/ebpfsentinel-release/.github/workflows/sign-image.yml@refs/tags/v*"
-                        issuer: "https://token.actions.githubusercontent.com"
-                        additionalExtensions:
-                          githubWorkflowRepository: ebpfsentinel/ebpfsentinel-enterprise
-                      ctlog:
-                        ignoreSCT: false
-                    - keyless:
-                        subject: "https://github.com/ebpfsentinel/ebpfsentinel-release/.github/workflows/sign-image.yml@refs/tags/v*"
-                        issuer: "https://token.actions.githubusercontent.com"
-                        additionalExtensions:
-                          githubWorkflowRepository: ebpfsentinel/ebpfsentinel-operator
-                      ctlog:
-                        ignoreSCT: false
-                    - keyless:
-                        subject: "https://github.com/ebpfsentinel/ebpfsentinel-release/.github/workflows/sign-image.yml@refs/tags/v*"
-                        issuer: "https://token.actions.githubusercontent.com"
-                        additionalExtensions:
-                          githubWorkflowRepository: ebpfsentinel/ebpfsentinel-dashboard
+                          githubWorkflowRepository: ebpfsentinel/ebpfsentinel-release
                       ctlog:
                         ignoreSCT: false
               conditions:

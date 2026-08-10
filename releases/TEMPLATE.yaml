@@ -1,13 +1,20 @@
 # Release coordination manifest — copy to releases/<version>.yaml.
 #
 # This is the single declaration of what "release 2026.6.1" means across the
-# component repositories. `issue-measurements.yml` reads it to decide what to
-# measure and sign, so a component left out here is left out of the signed
-# inventory — the manifest is load-bearing, not documentation.
+# component repositories. `cut-release.yml` builds from it and
+# `issue-measurements.yml` reads it to decide what to measure and sign, so a
+# component left out here is neither built nor signed — the manifest is
+# load-bearing, not documentation.
 #
 # `release:` is the product version. Each component carries its OWN version:
 # they ship on their own cadence, and pretending otherwise would force a
 # version bump on four repositories because one of them changed.
+#
+# `ref:` is the commit each component is built from, as a full 40-character
+# sha. Nothing else is accepted: the build runs here rather than in the
+# component repository, so this field is the only record of what went into the
+# binaries, and a branch name would move under it. Fill it with
+#   git -C ../<component> rev-parse origin/main
 #
 # Every component listed here must also have a `## [<its version>]` section in
 # changelogs/<name>.md, in the same pull request. Validate both with:
@@ -22,11 +29,17 @@ status: rc # rc | stable | yanked
 # security problem. Revoking the digests is separate — see docs/REVOCATION.md.
 
 components:
+  # `image:` takes a list when a component publishes more than one: the agent
+  # and the warden broker are one deployment, and an inventory naming only the
+  # agent describes something nobody can run.
   - name: ebpfsentinel
     repo: ebpfsentinel/ebpfsentinel
     version: "2026.6.1"
+    ref: "0000000000000000000000000000000000000000" # git rev-parse origin/main
     license: AGPL-3.0-only
-    image: ghcr.io/ebpfsentinel/ebpfsentinel
+    image:
+      - ghcr.io/ebpfsentinel/ebpfsentinel
+      - ghcr.io/ebpfsentinel/ebpfsentinel-warden
     binaries:
       - name: ebpfsentinel-agent
         tarball: "ebpfsentinel-{version}-linux-{arch}.tar.gz"
@@ -35,8 +48,11 @@ components:
   - name: ebpfsentinel-enterprise
     repo: ebpfsentinel/ebpfsentinel-enterprise
     version: "2026.6.1"
+    ref: "0000000000000000000000000000000000000000"
     license: LicenseRef-Proprietary
-    image: ghcr.io/ebpfsentinel/ebpfsentinel-enterprise
+    image:
+      - ghcr.io/ebpfsentinel/ebpfsentinel-enterprise
+      - ghcr.io/ebpfsentinel/ebpfsentinel-enterprise-warden
     binaries:
       - name: ebpfsentinel-enterprise-agent
         tarball: "ebpfsentinel-enterprise-{version}-linux-{arch}.tar.gz"
@@ -45,15 +61,21 @@ components:
         tarball: "ebpfsentinel-enterprise-{version}-linux-{arch}.tar.gz"
         arches: [amd64, arm64]
 
+  # Two images from one source tree: the second is the same operator compiled
+  # with `--features enterprise`, which is what a licensed cluster runs.
   - name: ebpfsentinel-operator
     repo: ebpfsentinel/ebpfsentinel-operator
     version: "2026.6.1"
+    ref: "0000000000000000000000000000000000000000"
     license: AGPL-3.0-only
-    image: ghcr.io/ebpfsentinel/ebpfsentinel-operator
+    image:
+      - ghcr.io/ebpfsentinel/ebpfsentinel-operator
+      - ghcr.io/ebpfsentinel/ebpfsentinel-operator-enterprise
 
   - name: ebpfsentinel-dashboard
     repo: ebpfsentinel/ebpfsentinel-dashboard
     version: "2026.6.1"
+    ref: "0000000000000000000000000000000000000000"
     license: LicenseRef-Proprietary
     image: ghcr.io/ebpfsentinel/ebpfsentinel-dashboard
 
@@ -64,6 +86,7 @@ components:
   - name: anomstream
     repo: ebpfsentinel/anomstream
     version: "2026.4.1"
+    ref: "0000000000000000000000000000000000000000"
     license: Apache-2.0
     crates:
       - anomstream

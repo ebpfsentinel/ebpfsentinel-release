@@ -79,9 +79,10 @@ jobs:
 
 > Note the asymmetry: the two reusable signing workflows
 > (`sign-image.yml`, `sign-blob.yml`) deliberately do **not** use an
-> environment — they run on behalf of a *caller* repo and a human approval on
-> every product build would be unworkable. Their control is the
-> `ALLOWED_CALLERS` gate plus verification-time repository pinning. The
+> environment: they are called once per artifact by `cut-release.yml`, and a
+> human approval on each of the dozen signatures in one release run would be
+> unworkable. Their control is the `ALLOWED_CALLERS` gate plus
+> verification-time repository pinning. The
 > operational workflows (`issue-measurements`, `issue-revocations`) are
 > low-frequency and human-triggered, so they take the approval.
 

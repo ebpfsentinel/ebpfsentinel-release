@@ -16,15 +16,11 @@ ORG="${ORG:-ebpfsentinel}"
 ISSUER="https://token.actions.githubusercontent.com"
 ID_RE="^https://github.com/${ORG}/ebpfsentinel-release/.github/workflows/(sign-image|sign-blob)\.yml@refs/tags/v.*$"
 
-# Repositories whose releases we sign. Keep in sync with ALLOWED_CALLERS in
+# Repositories whose releases we sign. Every artifact is built and signed by
+# cut-release.yml in the release repository, whatever component it came from,
+# so this is a single entry. Keep in sync with ALLOWED_CALLERS in
 # .github/workflows/sign-{image,blob}.yml.
-ALLOWED_SOURCE_REPOS="${ALLOWED_SOURCE_REPOS:-\
-${ORG}/ebpfsentinel
-${ORG}/ebpfsentinel-enterprise
-${ORG}/ebpfsentinel-operator
-${ORG}/ebpfsentinel-dashboard
-${ORG}/ebpfsentinel-release
-${ORG}/anomstream}"
+ALLOWED_SOURCE_REPOS="${ALLOWED_SOURCE_REPOS:-${ORG}/ebpfsentinel-release}"
 
 # SOURCE_REPO=<owner>/<repo> pins one exact origin. Unset means "any of the
 # repositories listed above", which is still a closed set.
@@ -47,8 +43,8 @@ usage:
 env:
   ORG=...          override the org (default: ${ORG})
   SOURCE_REPO=...  pin the exact repository the artifact was released from,
-                   e.g. SOURCE_REPO=${ORG}/ebpfsentinel. Unset accepts any
-                   eBPFsentinel product repository.
+                   e.g. SOURCE_REPO=${ORG}/ebpfsentinel-release, which is
+                   also what the default accepts.
   OFFLINE=1        air-gapped verification (no Rekor network call)
   REVOCATIONS=...  path to a verified revocations.json; the digest is also
                    checked against it (see docs/REVOCATION.md)

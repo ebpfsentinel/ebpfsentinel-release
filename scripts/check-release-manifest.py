@@ -5,7 +5,7 @@
     check-release-manifest.py --images <manifest>     # emit image:tag refs, one per line
     check-release-manifest.py --binaries <manifest>   # emit repo<TAB>version<TAB>tarball<TAB>binary
     check-release-manifest.py --crates <manifest>     # emit crate<TAB>version
-    check-release-manifest.py --components <manifest> # emit name<TAB>repo<TAB>version
+    check-release-manifest.py --components <manifest> # emit name<TAB>repo<TAB>version<TAB>ref
 
 Seven repositories ship as one product. Which versions belong together is a
 fact that otherwise lives only in someone's head or in a chat message, and the
@@ -44,6 +44,27 @@ REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 IMAGE_RE = re.compile(r"^[a-z0-9.-]+(:[0-9]+)?(/[a-z0-9._-]+)+$")
 CRATE_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
+# A full commit sha, and nothing looser. The release workflows build from this
+# ref, so a branch name would mean the artifacts a release published cannot be
+# rebuilt from the manifest that describes them, and a tag can be moved after
+# the fact. Fill it with `git rev-parse origin/main` in the component checkout.
+REF_RE = re.compile(r"^[0-9a-f]{40}$")
+
+
+def images_of(component: dict) -> list[str]:
+    """A component may publish several images (an agent and its warden broker).
+
+    `image:` therefore accepts a string or a list; both spellings mean the same
+    thing to every consumer, which reads this helper rather than the raw field.
+    """
+    image = component.get("image")
+    if image is None:
+        return []
+    if isinstance(image, str):
+        return [image]
+    if isinstance(image, list):
+        return [str(i) for i in image]
+    return []
 
 
 def changelog_errors(doc: dict, changelog_dir: Path) -> list[str]:
@@ -127,9 +148,21 @@ def validate(doc: dict, path: Path) -> list[str]:
         if not c.get("license"):
             errs.append(f"{where}: missing license — it is part of what we ship")
 
-        image = c.get("image")
-        if image and not IMAGE_RE.match(str(image)):
-            errs.append(f"{where}: image must be a tagless registry path, got {image!r}")
+        ref = c.get("ref")
+        if not ref:
+            errs.append(f"{where}: missing ref, the commit this release is built from")
+        elif not REF_RE.match(str(ref)):
+            errs.append(
+                f"{where}: ref must be a full 40-character commit sha, got {ref!r}. "
+                "A branch moves and a tag can be moved, and the build reads this."
+            )
+
+        raw_image = c.get("image")
+        if raw_image is not None and not isinstance(raw_image, (str, list)):
+            errs.append(f"{where}: image must be a registry path or a list of them")
+        for image in images_of(c):
+            if not IMAGE_RE.match(image):
+                errs.append(f"{where}: image must be a tagless registry path, got {image!r}")
 
         binaries = c.get("binaries", [])
         if not isinstance(binaries, list):
@@ -146,7 +179,7 @@ def validate(doc: dict, path: Path) -> list[str]:
             if not CRATE_RE.match(str(crate)):
                 errs.append(f"{where}: invalid crate name {crate!r}")
 
-        if not image and not binaries and not crates:
+        if not images_of(c) and not binaries and not crates:
             errs.append(
                 f"{where}: declares neither an image, binaries nor crates — nothing to measure"
             )
@@ -241,9 +274,10 @@ def main() -> int:
             return 1
         for c in doc["components"]:
             if args.components:
-                print("\t".join([c["name"], c["repo"], str(c["version"])]))
-            if args.images and c.get("image"):
-                print(f"{c['image']}:{c['version']}")
+                print("\t".join([c["name"], c["repo"], str(c["version"]), str(c["ref"])]))
+            if args.images:
+                for image in images_of(c):
+                    print(f"{image}:{c['version']}")
             if args.crates:
                 for crate in c.get("crates", []):
                     print("\t".join([str(crate), str(c["version"])]))

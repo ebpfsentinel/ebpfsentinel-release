@@ -1,0 +1,231 @@
+# Builds, pushes and signs the dashboard image and its Helm chart from THIS
+# repository.
+#
+# The image build generates its typed API client from the agent's OpenAPI spec
+# and protos, so it needs the agent tree: the Dockerfile fetches it itself at
+# AGENT_REF, which is the same OSS commit the release manifest pins.
+name: build-dashboard
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "Version to stamp and publish (YYYY.M.X)"
+        required: true
+        type: string
+      ref:
+        description: "Commit sha in ebpfsentinel/ebpfsentinel-dashboard to build"
+        required: true
+        type: string
+      oss-ref:
+        description: "Commit sha of the OSS agent the API client is generated from"
+        required: true
+        type: string
+      push:
+        description: "Push the image and chart to GHCR (off for a dry run)"
+        required: false
+        default: true
+        type: boolean
+
+permissions: {}
+
+env:
+  REGISTRY: ghcr.io
+  COMPONENT_REPO: ebpfsentinel/ebpfsentinel-dashboard
+  AGENT_REPO_URL: https://github.com/ebpfsentinel/ebpfsentinel.git
+  IMAGE: ghcr.io/ebpfsentinel/ebpfsentinel-dashboard
+  CHART_PATH: helm-charts/ebpfsentinel-dashboard
+  CHART_IMAGE: ghcr.io/ebpfsentinel/charts/ebpfsentinel-dashboard
+  LICENSE: LicenseRef-Proprietary
+
+jobs:
+  build-and-push:
+    name: Build and push multi-arch image
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.img.outputs.image }}
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      # Before the registry login: a malformed version would otherwise be
+      # discovered only after the image had been pushed under a bad tag.
+      - name: Validate version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if ! echo "$VERSION" | grep -qE '^[0-9]{4}\.[1-9][0-9]?\.[0-9]+$'; then
+            echo "::error::Invalid version format: $VERSION (expected YYYY.M.X)"
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ebpfsentinel/ebpfsentinel-dashboard
+          ref: ${{ inputs.ref }}
+          path: src
+          token: ${{ secrets.COMPONENT_CHECKOUT_TOKEN }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image name
+        id: img
+        env:
+          IMAGE: ${{ env.IMAGE }}
+        run: echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+
+      # `type=sha` is deliberately absent: the run's own sha belongs to this
+      # repository, not to the dashboard. The commit that built the image is on
+      # the revision label.
+      - name: Compute image metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ steps.img.outputs.image }}
+          tags: |
+            type=raw,value=${{ inputs.version }}
+            type=raw,value=latest
+          labels: |
+            org.opencontainers.image.title=eBPFsentinel Dashboard
+            org.opencontainers.image.version=${{ inputs.version }}
+            org.opencontainers.image.vendor=eBPFsentinel
+            org.opencontainers.image.licenses=${{ env.LICENSE }}
+            org.opencontainers.image.source=https://github.com/${{ env.COMPONENT_REPO }}
+            org.opencontainers.image.revision=${{ inputs.ref }}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: src
+          platforms: linux/amd64,linux/arm64
+          push: ${{ inputs.push }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: true
+          build-args: |
+            AGENT_REPO=${{ env.AGENT_REPO_URL }}
+            AGENT_REF=${{ inputs.oss-ref }}
+
+  # The full remote form is deliberate: Sigstore records the CALLED ref as the
+  # certificate subject, and every published policy pins @refs/tags/v*.
+  sign:
+    name: Sign and attest
+    needs: [build-and-push]
+    if: inputs.push
+    permissions:
+      id-token: write
+      packages: write
+      contents: read
+    uses: ebpfsentinel/ebpfsentinel-release/.github/workflows/sign-image.yml@v1
+    with:
+      image: ${{ needs.build-and-push.outputs.image }}
+      digest: ${{ needs.build-and-push.outputs.digest }}
+
+  # The chart deploys the image above, so it carries the same version and ships
+  # in the same run rather than behind a tag of its own.
+  helm:
+    name: Helm chart
+    needs: [build-and-push]
+    if: inputs.push
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.push.outputs.image }}
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ebpfsentinel/ebpfsentinel-dashboard
+          ref: ${{ inputs.ref }}
+          path: src
+          token: ${{ secrets.COMPONENT_CHECKOUT_TOKEN }}
+
+      - name: Stamp version in Chart.yaml
+        working-directory: src
+        env:
+          VERSION: ${{ inputs.version }}
+          CHART_PATH: ${{ env.CHART_PATH }}
+        run: |
+          set -euo pipefail
+          sed -i "s/^version: .*/version: ${VERSION}/" "${CHART_PATH}/Chart.yaml"
+          sed -i "s/^appVersion: .*/appVersion: \"${VERSION}\"/" "${CHART_PATH}/Chart.yaml"
+          grep -E '^(version|appVersion):' "${CHART_PATH}/Chart.yaml"
+
+      - name: Install Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v3.16.3
+
+      - name: Helm lint
+        working-directory: src
+        run: helm lint ${{ env.CHART_PATH }}
+
+      # Renders with throwaway secrets so a template that only breaks once the
+      # required values are set fails here rather than in a customer's cluster.
+      - name: Helm template dry-run
+        working-directory: src
+        run: |
+          helm template test-release ${{ env.CHART_PATH }} \
+            --set oidc.clientSecret=test \
+            --set oidc.cookieSigningKey=test \
+            --set "jwt.signingKeys[0].privateKeyPem=test" > /dev/null
+
+      - name: Log in to ghcr.io
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
+
+      - name: Package chart
+        working-directory: src
+        run: helm package ${{ env.CHART_PATH }} --destination .helm-pkg
+
+      - name: Push to OCI registry
+        id: push
+        working-directory: src
+        env:
+          REGISTRY: ${{ env.REGISTRY }}
+          CHART_IMAGE: ${{ env.CHART_IMAGE }}
+        run: |
+          set -euo pipefail
+          helm push .helm-pkg/*.tgz "oci://${REGISTRY}/ebpfsentinel/charts" 2>&1 | tee push.log
+          DIGEST="$(grep -oiE 'sha256:[0-9a-f]{64}' push.log | head -1)"
+          if [ -z "$DIGEST" ]; then
+            echo "::error::could not parse the pushed chart digest from helm output"
+            exit 1
+          fi
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "image=${CHART_IMAGE}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload chart package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dashboard-helm-chart
+          path: src/.helm-pkg/*.tgz
+          retention-days: 7
+
+  # No SBOM: syft produces nothing meaningful for a Helm chart.
+  sign-helm:
+    name: Sign chart
+    needs: [helm]
+    permissions:
+      id-token: write
+      packages: write
+      contents: read
+    uses: ebpfsentinel/ebpfsentinel-release/.github/workflows/sign-image.yml@v1
+    with:
+      image: ${{ needs.helm.outputs.image }}
+      digest: ${{ needs.helm.outputs.digest }}
+      sbom: false

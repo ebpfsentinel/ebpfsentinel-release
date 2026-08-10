@@ -50,16 +50,13 @@ on:
 permissions: {}
 
 env:
-  # Repositories allowed to borrow this signing identity. Keep in sync with
-  # ALLOWED_SOURCE_REPOS in policy/verify.sh and the attestor entries in
+  # Repositories allowed to borrow this signing identity. Everything a customer
+  # can pull is now built by cut-release.yml in this repository, so this list is
+  # one entry: a component repository has nothing left to sign. Keep in sync
+  # with ALLOWED_SOURCE_REPOS in policy/verify.sh and the attestor entries in
   # policy/kyverno-verify-images.yaml.
   ALLOWED_CALLERS: |
-    ebpfsentinel/ebpfsentinel
-    ebpfsentinel/ebpfsentinel-enterprise
-    ebpfsentinel/ebpfsentinel-operator
-    ebpfsentinel/ebpfsentinel-dashboard
     ebpfsentinel/ebpfsentinel-release
-    ebpfsentinel/anomstream
 
 jobs:
   sign:

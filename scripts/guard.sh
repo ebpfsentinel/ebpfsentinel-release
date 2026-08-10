@@ -15,9 +15,15 @@ bad() { echo "  FAIL: $1"; fail=1; }
 echo "[1] third-party actions are pinned to a commit SHA"
 # A mutable tag on an action means an upstream account compromise silently
 # changes what our signing identity executes.
+#
+# `./`-relative uses are exempt and cannot drift: a path into this repository
+# resolves to the calling commit, and a path into a component checkout (e.g.
+# ./src/.github/actions/stamp-version) resolves to the commit sha the release
+# manifest pinned for that component.
 unpinned="$(grep -hoE '^\s*-?\s*uses:\s*[^ ]+' .github/workflows/*.yml \
   | sed -E 's/^\s*-?\s*uses:\s*//' \
   | grep -v '^ebpfsentinel/ebpfsentinel-release/' \
+  | grep -v '^\./' \
   | grep -vE '@[0-9a-f]{40}$' || true)"
 if [ -n "$unpinned" ]; then
   bad "actions not pinned to a SHA:"
@@ -53,7 +59,8 @@ def from_workflow(path):
 
 def from_verify(path):
     src = open(path).read()
-    m = re.search(r'ALLOWED_SOURCE_REPOS="\$\{ALLOWED_SOURCE_REPOS:-\\\n(.*?)\}"', src, re.S)
+    # One repo fits on the line; several use a backslash continuation.
+    m = re.search(r'ALLOWED_SOURCE_REPOS="\$\{ALLOWED_SOURCE_REPOS:-\\?\n?(.*?)\}"', src, re.S)
     if not m:
         print("  FAIL: could not locate ALLOWED_SOURCE_REPOS in", path)
         sys.exit(1)

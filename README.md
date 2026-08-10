@@ -4,10 +4,11 @@ Where eBPFsentinel is released, and the single trust anchor for its
 supply-chain integrity. Every published image and binary is signed here,
 digest-pinned, and unusable if modified.
 
-The product repositories build and sign; **this is the only one that
-publishes**. One release, one changelog, one compatibility matrix — a customer
-should not have to visit five repositories to work out which versions belong
-together.
+The product repositories hold source and run CI; **this is the only one that
+builds and publishes**. One release, one changelog, one compatibility matrix: a
+customer should not have to visit five repositories to work out which versions
+belong together, and nothing can reach `ghcr.io/ebpfsentinel/*` without passing
+through a release run here.
 
 - **Cutting a release**: [`docs/RELEASES.md`](docs/RELEASES.md)
 - **Release notes, per component**: [`changelogs/`](changelogs/README.md)
@@ -20,6 +21,7 @@ together.
 
 | Workflow | Purpose |
 |---|---|
+| [`.github/workflows/build-*.yml`](.github/workflows/) | check a component out at the commit the manifest pins, compile it, push and sign its images |
 | [`.github/workflows/sign-image.yml`](.github/workflows/sign-image.yml) | cosign-keyless sign a pushed container image + attest SPDX SBOM |
 | [`.github/workflows/sign-blob.yml`](.github/workflows/sign-blob.yml) | cosign-keyless sign release binaries/tarballs + signed `SHA256SUMS` + build provenance |
 | [`.github/workflows/security-scan.yml`](.github/workflows/security-scan.yml) | advisories, licenses, dependency policy floor, secret scan ([`docs/CODE-SECURITY.md`](docs/CODE-SECURITY.md)) |
@@ -34,24 +36,25 @@ Operational workflows run from here, not from product repos:
 | [`.github/workflows/acceptance.yml`](.github/workflows/acceptance.yml) | prove tamper is rejected at every layer |
 | [`.github/workflows/guard.yml`](.github/workflows/guard.yml) | fail the PR when a repo invariant drifts ([`scripts/guard.sh`](scripts/guard.sh)) |
 
-Product repos call the signing workflows after their build step. They no longer
-create releases of their own — `cut-release.yml` dispatches their `release.yml`
-and collects the artifacts. Example:
+The signing workflows have exactly one authorized caller, this repository, and
+are called by the build workflows above. They keep their full remote form even
+from here:
 
 ```yaml
-jobs:
-  build:
-    # ... docker/build-push-action with provenance: true, outputs digest ...
   sign:
-    needs: build
+    needs: build-and-push
     permissions:
       id-token: write
       packages: write
     uses: ebpfsentinel/ebpfsentinel-release/.github/workflows/sign-image.yml@v1
     with:
       image: ghcr.io/ebpfsentinel/ebpfsentinel-dashboard
-      digest: ${{ needs.build.outputs.digest }}
+      digest: ${{ needs.build-and-push.outputs.digest }}
 ```
+
+A local `./.github/workflows/sign-image.yml` would work and would be wrong:
+Sigstore records the *called* ref as the certificate subject, so it would sign
+as `@refs/heads/main` and every published policy pins `@refs/tags/v*`.
 
 ## Verification
 
@@ -66,7 +69,7 @@ jobs:
 
 Trust anchor: cosign keyless, issuer `token.actions.githubusercontent.com`,
 identity = this repo's signing workflows on a `v*` tag, **plus** the calling
-repository recorded in the certificate. No public key to distribute; image/blob
+repository recorded in the certificate, which is this repository. No public key to distribute; image/blob
 signing needs no stored secret.
 
 Because the signing workflows are reusable, the certificate subject names the

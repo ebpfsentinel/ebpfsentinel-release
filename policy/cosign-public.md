@@ -64,15 +64,15 @@ Or the raw cosign command:
 cosign verify \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --certificate-identity-regexp '^https://github.com/ebpfsentinel/ebpfsentinel-release/.github/workflows/(sign-image|sign-blob)\.yml@refs/tags/v.*$' \
-  --certificate-github-workflow-repository ebpfsentinel/ebpfsentinel \
+  --certificate-github-workflow-repository ebpfsentinel/ebpfsentinel-release \
   ghcr.io/ebpfsentinel/ebpfsentinel@sha256:<digest>
 ```
 
-Set `--certificate-github-workflow-repository` to the repository the artifact
-was released from (`ebpfsentinel/ebpfsentinel-enterprise` for the enterprise
-agent, `-operator`, `-dashboard`, and `-release` for the measurements
-manifest). `verify.sh` does this for you — with `SOURCE_REPO=<owner>/<repo>`
-to pin one exact origin, or unset to accept any eBPFsentinel product repo.
+`--certificate-github-workflow-repository` is the repository that asked for the
+signature, and it is `ebpfsentinel/ebpfsentinel-release` for everything: one
+release run builds and signs every component, whichever repository the source
+came from. `verify.sh` does this for you — with `SOURCE_REPO=<owner>/<repo>`
+to pin one exact origin, or unset for the same default.
 
 GitHub build-provenance attestations (on release binaries) can also be
 checked with the GitHub CLI:
