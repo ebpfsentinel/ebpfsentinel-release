@@ -8,6 +8,49 @@ Versioning follows **CalVer**: `YYYY.M.RELEASE` (year, month without leading zer
 
 Within each release, entries are grouped **Added → Changed → Fixed → Security**, and each group is split into thematic subsections so a reader can scan one area (datapath, deployment, API…) at a time.
 
+## [Unreleased]
+
+### Added
+
+#### Kernel feature reporting
+- **`GET /api/v1/ebpf/kernel-features`**: what the running kernel actually accepts, probed once at startup and served from cache. Reports every (program type, helper) pair each compiled object needs, and separates "the kernel refused this helper" from "the probe could not run". The probe itself needs `CAP_BPF`, which the rootless BPF-token path deliberately does not hold, so on a token deployment the answer is `not_probed` - and a `not_probed` result never refuses a program
+- **`kernel_helpers_missing` on `/readyz`**: names each object whose required helpers the kernel rejected, so an agent that will never see traffic says so instead of coming up healthy
+- **Conntrack kfunc metrics**: `kfunc_state_new`, `kfunc_state_established`, `kfunc_state_related`, `kfunc_state_invalid`, `kfunc_marked` and `kfunc_read_errors`. The kernel connection state was already being read out of `nf_conn` and then discarded, which left seven connection-tracking counters permanently at zero and the three kfunc lookup counters unexported; both are now wired through. A guard test fails the build if a counter slot has no exported label
+
+#### Attach diagnostics
+- **`attach_blocked` on `/readyz` and `GET /api/v1/ebpf/status`**: one entry per program that loaded but could not attach, carrying a sentence an operator can act on - the occupying program's id and XDP mode, whether a BPF link holds it (so whether anyone but its owner can replace it), and whether the requested and occupied modes conflict. The `nested_xdp` flag is read back from rtnetlink rather than guessed from an errno, because the kernel answers `EBUSY` and `EEXIST` for the same underlying situation
+- Docker and Kubernetes nested XDP, where the runtime or CNI already owns the interface's single XDP slot, is now diagnosable from the endpoint instead of from a bare `File exists (os error 17)`
+
+#### Ring-buffer observability
+- **`ringbuf_events_total{source}`**, **`ringbuf_events_dropped_total{source,reason}`** and **`ringbuf_latency_seconds{source}`**: every record userspace drains, discards or is late to pick up, per producing program. Ring pressure was previously invisible between the kernel counter and the pipeline
+
+### Changed
+
+#### eBPF toolchain
+- **aya 0.14.0, aya-obj 0.3.0, aya-ebpf 0.2.1**. `ebpf-common` pinned aya directly instead of through the workspace, so the dependency graph carried two aya versions and every `Pod` implementation targeted the older trait; the pin is now unified
+- **`aya-build`, `aya-log` and `aya-log-ebpf` removed.** The log call sites were `#[cfg(debug_assertions)]` and kernel objects are built in release, so the shipped program bytes are byte-identical
+- **All map declarations migrated to BTF map definitions** across every kernel object. The legacy `maps` ELF section is gone; loading now goes through the BTF `.maps` section exclusively
+
+#### Datapath
+- **DNS ring records are tiered.** A 192-byte record carries query-shaped traffic where a 576-byte record was reserved before, so the 256 KB DNS ring holds 1365 in-flight records instead of 455
+- **Interface indices are read through the kernel context accessor** at all nine sites that previously read the raw field behind `unsafe`
+- **XDP re-attach is idempotent.** An agent restart that finds its own program already on the interface readopts it instead of creating a second link. Pinned maps are still wiped at startup - the kernel offers no way to ask whether a live process still holds a pin - but the wipe now states its reason in the log
+
+### Fixed
+
+#### DLP
+- **SSL libraries whose backing file was unlinked while mapped are now found.** The `/proc/<pid>/maps` parser truncated any path containing a space and mishandled the `(deleted)` marker, so an unlinked mapping was a silent miss. Worse than a miss after an in-place package upgrade: the old path then names a replacement inode while running processes keep the old one mapped, so resolution by name would probe the wrong file at the wrong ELF offsets. Unlinked mappings now resolve through `/proc/<pid>/map_files/`, which requires `CAP_SYS_ADMIN` to look up an entry; where that capability is absent the mapping is skipped exactly as before
+- **A brief warden outage no longer rebuilds the entire uprobe set.** The scan collapsed "the broker is unreachable" into "nothing is mapped", so every warden restart tore down and re-attached every probe; unreachability is now an error and the reconcile pass holds the current set
+
+#### Kernel-side error handling
+- **A failed connection-state read no longer downgrades an established flow to new.** `xdp-firewall` left the status word at zero on a failed probe read, which every branch reads as "no state bits set"; it now returns an unknown sentinel, so a stale BTF offset degrades visibly instead of silently changing which rules match
+- **A failed L7 payload read no longer emits a truncated record.** `tc-dns` advertised the declared length over a zeroed payload; the record is now discarded and counted
+- **A failed dynptr adjustment no longer reports the L2 header as the L7 protocol.** The probe read the dynptr's current start regardless of whether the adjustment succeeded
+
+### Security
+
+- **Cross-connection payload disclosure in L7 events (`tc-ids`).** The ring-buffer reservation was not zeroed before use, so a failed payload read submitted whatever the ring last held, under this packet's header and at this packet's length - userspace was handed another connection's bytes as if they belonged to this one. The reservation is now discarded on a failed read and the failure is counted
+
 ## [2026.6.1] - 2026-06-16
 
 ### Added
