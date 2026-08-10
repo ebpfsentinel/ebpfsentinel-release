@@ -141,6 +141,15 @@ First public release of the enterprise layer. Everything below is new relative t
 - **Rootless enterprise warden** with a proc-TLS extension protocol
 - **Extended-TLS process scan brokered through the warden** when running rootless
 - **Split rootless dist / compose / Helm assets**
+- **Every TLS probe plan carries the build id of the binary its offsets were resolved against**, so two scans that disagree on an offset can say whether the binary changed or the resolution did. A stripped binary reports no build id rather than failing the plan
+- **A symbol the scan could not resolve is skipped instead of probed at offset zero**, which previously reported a probe that could never fire as a successful attach
+
+#### Kernel verification at boot
+
+- **Kernel helper probe runs before the version gate**, so a node that cannot start says which helper is missing rather than only which kernel version it wanted
+- **Four boot outcomes**, each logged distinctly: verified, unverified (the probe itself could not run, agent continues), degraded (some eBPF objects lack a helper and are skipped) and refused (no object can load, exit code 2)
+- **`GET /api/v1/ebpf/kernel-features`** on the enterprise API, reporting the probe result without issuing further kernel syscalls
+- **An unverified boot is greppable three ways**: a WARN level, a `helper_support="unverified"` log field, and a message stating that helper support was not verified
 
 #### Container awareness
 
@@ -173,6 +182,8 @@ First public release of the enterprise layer. Everything below is new relative t
 - ML primitives (`OnlineStats`, `FeatureNormalizer`, `EwmaEngine`, `CusumEngine`, `CountMinSketch`, `AnomalyThresholds`) migrated onto anomstream, dropping the local implementations
 - Enterprise Dockerfile takes the OSS sources from a configurable repository URL instead of a local path dependency
 - HA moved to the Team tier
+- **A promotion reloads the datapath rather than adopting programs left on the interface.** An adopted attachment belongs to the previous generation of maps, so the node would run a datapath whose services write to maps nothing reads. Leftover attachments found after a step-down are reported as a diagnostic
+- **Packet mirroring reports unavailable on a node with no active datapath** instead of accepting the request and capturing nothing
 
 ### Fixed
 
@@ -180,6 +191,10 @@ First public release of the enterprise layer. Everything below is new relative t
 - SIEM exporters no longer write index-lifecycle policy keys they never read
 - An IPv6 rate-limit response is refused rather than writing the rate limiter's default entry
 - Multi-cluster federation settings are validated at config load time
+- **Alerts were never delivered on a node running in HA mode.** The datapath event channel was only ever consumed in standalone mode, so a promoted leader produced alerts that reached neither the API, nor SIEM export, nor the automated response engine
+- **Packet mirroring stopped working from the second promotion onward.** The mirror configuration handle was taken once at startup and kept across reloads, so it wrote to the previous datapath generation. The write succeeded and no frames were captured
+- **A node could load a datapath on top of its own teardown** when promotion and step-down overlapped, leaving the recorded role disagreeing with what was attached
+- **The enterprise API accepted unauthenticated requests on port 8444**, and the role used for access decisions was read from a caller-supplied header rather than from verified credentials
 
 ### Security
 

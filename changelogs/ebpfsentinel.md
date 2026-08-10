@@ -21,6 +21,10 @@ Within each release, entries are grouped **Added → Changed → Fixed → Secur
 - **`attach_blocked` on `/readyz` and `GET /api/v1/ebpf/status`**: one entry per program that loaded but could not attach, carrying a sentence an operator can act on - the occupying program's id and XDP mode, whether a BPF link holds it (so whether anyone but its owner can replace it), and whether the requested and occupied modes conflict. The `nested_xdp` flag is read back from rtnetlink rather than guessed from an errno, because the kernel answers `EBUSY` and `EEXIST` for the same underlying situation
 - Docker and Kubernetes nested XDP, where the runtime or CNI already owns the interface's single XDP slot, is now diagnosable from the endpoint instead of from a bare `File exists (os error 17)`
 
+#### Uprobe inventory
+- **`GET /api/v1/ebpf/uprobes`**: every TLS uprobe currently attached, with the library path, its device and inode, the symbol, and the file offset the probe actually landed on. The offset the link was created at is now recorded at attach time rather than resolved again for reporting, so what the endpoint returns is what the kernel is running. Libraries are counted by inode, so one library mapped by twenty processes counts once
+- The inventory is dropped when the datapath is detached, so a node that has torn down its programs stops reporting TLS inspection it is no longer doing
+
 #### Ring-buffer observability
 - **`ringbuf_events_total{source}`**, **`ringbuf_events_dropped_total{source,reason}`** and **`ringbuf_latency_seconds{source}`**: every record userspace drains, discards or is late to pick up, per producing program. Ring pressure was previously invisible between the kernel counter and the pipeline
 
