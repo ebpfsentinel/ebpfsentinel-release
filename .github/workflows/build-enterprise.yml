@@ -49,6 +49,14 @@ env:
 
 jobs:
   # ── Release tarballs, one per architecture ────────────────────────
+  #
+  # Cut from `Dockerfile.agent`'s `binaries` stage rather than from a toolchain
+  # this workflow assembles itself. A static musl enterprise binary needs a musl
+  # C++ compiler for Vectorscan and an ONNX Runtime compiled for musl, neither of
+  # which a Debian-based runner can supply - `ort` publishes prebuilt ONNX Runtime
+  # for glibc only, and Debian packages a musl C compiler but no musl g++. The
+  # Dockerfile already solves both on Alpine, so reusing it keeps one definition
+  # of the toolchain and makes the tarball and the image ship identical bytes.
   build-release:
     name: Build ${{ inputs.version }} (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
@@ -59,88 +67,59 @@ jobs:
         include:
           - arch: amd64
             runner: ubuntu-latest
-            target: x86_64-unknown-linux-musl
           - arch: arm64
             runner: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-musl
     steps:
-      # Siblings under the workspace root, which is what `../ebpfsentinel/crates/*`
-      # in the enterprise manifests resolves to. Both at the commit the release
-      # manifest pins, so the enterprise binary is built against the same OSS
-      # tree the release publishes.
+      # Only the enterprise tree: the Dockerfile fetches the OSS sources its path
+      # deps resolve against itself, at the commit the release manifest pins.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ebpfsentinel/ebpfsentinel-enterprise
           ref: ${{ inputs.ref }}
-          path: enterprise
+          path: src
           token: ${{ secrets.COMPONENT_CHECKOUT_TOKEN }}
 
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ebpfsentinel/ebpfsentinel
-          ref: ${{ inputs.oss-ref }}
-          path: ebpfsentinel
-          token: ${{ secrets.COMPONENT_CHECKOUT_TOKEN || github.token }}
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
-      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
-        with:
-          targets: ${{ matrix.target }}
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          workspaces: enterprise
-          shared-key: enterprise-release-${{ matrix.arch }}
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update && sudo apt-get install -y \
-            protobuf-compiler musl-tools llvm-dev flex bison wget \
-            cmake ragel libboost-dev pkg-config g++
-
-      - name: Build static libpcap (musl)
-        run: |
-          PCAP_VERSION=1.10.6
-          PCAP_SHA256="ec97d1206bdd19cb6bdd043eaa9f0037aa732262ec68e070fd7c7b5f834d5dfc"
-          wget -qO /tmp/libpcap.tar.xz "https://www.tcpdump.org/release/libpcap-${PCAP_VERSION}.tar.xz"
-          echo "${PCAP_SHA256}  /tmp/libpcap.tar.xz" | sha256sum -c -
-          tar xJf /tmp/libpcap.tar.xz -C /tmp && rm -f /tmp/libpcap.tar.xz
-          cd "/tmp/libpcap-${PCAP_VERSION}"
-          CC=musl-gcc ./configure --disable-shared --prefix=/usr/local/musl
-          make -j"$(nproc)"
-          sudo make install
-
-      # Stamps every Cargo.toml under the workspace root, which is both
-      # checkouts: the enterprise binary would otherwise report the OSS core's
-      # placeholder version.
-      - uses: ./enterprise/.github/actions/stamp-version
+      # Stamps the enterprise manifests before they enter the build context, so
+      # the binary reports the release version rather than the placeholder.
+      - uses: ./src/.github/actions/stamp-version
         with:
           version: ${{ inputs.version }}
 
+      # The runner is already the target architecture, so this is a native build
+      # and needs no `platforms:`. The cache scope is deliberately the one the
+      # image job uses: the ONNX Runtime layer is by far the most expensive in
+      # this build and there is no reason to compile it twice per release.
       - name: Build release binaries
-        working-directory: enterprise
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         env:
-          LIBPCAP_LIBDIR: /usr/local/musl/lib
-          RUSTFLAGS: "-L native=/usr/local/musl/lib"
-          # Build Vectorscan from source rather than linking a system copy: the
-          # runner has none, and a musl static binary cannot use one anyway.
-          VECTORSCAN_SYSTEM: ""
-        run: |
-          cargo build --release --target ${{ matrix.target }} \
-            --bin ebpfsentinel-enterprise-agent \
-            --bin ebpfsentinel-license
+          DOCKER_BUILD_SUMMARY: false
+        with:
+          context: src
+          file: src/Dockerfile.agent
+          target: binaries
+          push: false
+          provenance: false
+          sbom: false
+          build-args: |
+            OSS_REPO=${{ env.OSS_REPO_URL }}
+            OSS_REF=${{ inputs.oss-ref }}
+          cache-from: type=gha,scope=enterprise-agent-${{ matrix.arch }}
+          cache-to: type=gha,scope=enterprise-agent-${{ matrix.arch }},mode=max
+          outputs: type=local,dest=binaries
 
       - name: Create release tarball
         env:
           VERSION: ${{ inputs.version }}
           ARCH: ${{ matrix.arch }}
-          TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
           STAGING="ebpfsentinel-enterprise-${VERSION}-linux-${ARCH}"
           mkdir -p "${STAGING}"
-          cp "enterprise/target/${TARGET}/release/ebpfsentinel-enterprise-agent" "${STAGING}/"
-          cp "enterprise/target/${TARGET}/release/ebpfsentinel-license" "${STAGING}/"
-          cp enterprise/LICENSE "${STAGING}/"
+          install -m 0755 binaries/ebpfsentinel-enterprise-agent "${STAGING}/"
+          install -m 0755 binaries/ebpfsentinel-license "${STAGING}/"
+          cp src/LICENSE "${STAGING}/"
           tar czf "${STAGING}.tar.gz" "${STAGING}"
           echo "TARBALL=${STAGING}.tar.gz" >> "$GITHUB_ENV"
 
