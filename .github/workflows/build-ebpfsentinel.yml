@@ -169,9 +169,7 @@ jobs:
           cp -a dist/apparmor.d "${STAGING}/"
           cp -a dist/sysctl.d "${STAGING}/"
           cp LICENSE "${STAGING}/"
-          find crates/ebpf-programs/*/target/bpfel-unknown-none/release \
-            -maxdepth 1 -type f ! -name '*.d' ! -name '*.fingerprint' \
-            -exec cp {} "${STAGING}/ebpf/" \;
+          cp target/bpfel-unknown-none/release/* "${STAGING}/ebpf/"
           tar czf "${STAGING}.tar.gz" "${STAGING}"
           echo "TARBALL=src/${STAGING}.tar.gz" >> "$GITHUB_ENV"
 
@@ -260,9 +258,7 @@ jobs:
           set -euo pipefail
           cargo xtask ebpf-build
           mkdir -p ebpf-out
-          find crates/ebpf-programs/*/target/bpfel-unknown-none/release \
-            -maxdepth 1 -type f ! -name '*.d' ! -name '*.fingerprint' \
-            -exec cp {} ebpf-out/ \;
+          cp target/bpfel-unknown-none/release/* ebpf-out/
           ls -la ebpf-out/
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
