@@ -102,6 +102,47 @@ else
   ok "policy/keys/ holds no private keys"
 fi
 
+# A published key is only useful if it is the key it claims to be. A truncated
+# file, or a pair committed under swapped filenames, verifies nothing — and it
+# would be found by a customer, at an air-gapped site, with nobody to ask. The
+# filename declares the algorithm, so decode and check the length against it.
+python3 - <<'PY'
+import base64, binascii, glob, os, sys
+
+# Raw public key length, by algorithm.
+ED25519, ML_DSA_65 = ("Ed25519", 32), ("ML-DSA-65", 1952)
+
+def declared(path):
+    stem = os.path.basename(path)[: -len(".pub")]
+    head, _, tail = stem.rpartition(".")
+    if head and tail.isdigit():   # dated copy kept across a rotation
+        stem = head
+    return ML_DSA_65 if stem.endswith(("-mldsa", "-pq")) else ED25519
+
+keys = sorted(glob.glob("policy/keys/*.pub"))
+if not keys:
+    print("  SKIP: policy/keys/ holds no public keys yet")
+    sys.exit(0)
+
+bad = False
+for path in keys:
+    algorithm, length = declared(path)
+    try:
+        raw = base64.b64decode(open(path).read().strip(), validate=True)
+    except (binascii.Error, ValueError) as e:
+        print(f"  FAIL: {path} is not base64 ({e})")
+        bad = True
+        continue
+    if len(raw) != length:
+        print(f"  FAIL: {path} decodes to {len(raw)} bytes, "
+              f"{algorithm} public keys are {length}")
+        bad = True
+if bad:
+    sys.exit(1)
+print(f"  PASS: {len(keys)} public key(s) match the algorithm in their name")
+PY
+[ $? -eq 0 ] || fail=1
+
 # ---------------------------------------------------------------------------
 echo "[5] revocation list is well-formed"
 if command -v jq >/dev/null 2>&1; then

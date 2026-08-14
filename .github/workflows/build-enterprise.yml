@@ -79,6 +79,15 @@ jobs:
           path: src
           token: ${{ secrets.COMPONENT_CHECKOUT_TOKEN }}
 
+      # This repository, for the published licence signing public keys. They
+      # travel in the tarball beside the tool that consumes them: a customer who
+      # downloads a licence over a web session must not also receive the key
+      # that proves it down the same wire, and one who has the binary but no key
+      # has been handed a command they cannot run.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: release
+
       # The runner ships ~14 GB free and this build compiles the workspace, ONNX
       # Runtime and the kernel programs on it, then stages a `mode=max` cache
       # export beside them. Dropping the preinstalled toolchains this build never
@@ -129,6 +138,16 @@ jobs:
           mkdir -p "${STAGING}"
           install -m 0755 binaries/ebpfsentinel-enterprise-agent "${STAGING}/"
           install -m 0755 binaries/ebpfsentinel-license "${STAGING}/"
+          # Fail closed. Shipping the tool without the keys leaves a customer
+          # holding a licence they can checksum and cannot authenticate, which
+          # is the one check that actually says the file is ours.
+          for key in license-signing.pub license-signing-pq.pub; do
+            if [ ! -s "release/policy/keys/${key}" ]; then
+              echo "::error::policy/keys/${key} is missing or empty — see docs/KEY-MANAGEMENT.md"
+              exit 1
+            fi
+            install -m 0644 "release/policy/keys/${key}" "${STAGING}/"
+          done
           cp src/LICENSE "${STAGING}/"
           tar czf "${STAGING}.tar.gz" "${STAGING}"
           echo "TARBALL=${STAGING}.tar.gz" >> "$GITHUB_ENV"

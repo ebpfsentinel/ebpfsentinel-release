@@ -80,6 +80,7 @@ them changed. The manifest is what states which versions belong together, and
    | `sboms-<version>.tar.gz` | each image's SBOM, verified against the signing identity |
    | `SHA256SUMS{,.sig,.crt}` | keyless signature covering all of the above |
    | `release-signing-*.pub` | the public keys, so air-gapped verification needs no network |
+   | `license-signing*.pub` | the other pair, the one that says a customer `.lic` is ours |
 
 6. **Flip `status` to `stable`** when the release has soaked, in a second PR.
 

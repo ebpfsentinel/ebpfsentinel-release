@@ -346,6 +346,18 @@ jobs:
           cp repo/policy/verify.sh repo/policy/cosign-public.md out/
           cp repo/policy/keys/release-signing-ed25519.pub \
              repo/policy/keys/release-signing-mldsa.pub out/
+          # The licence keys ride along for the same reason the release keys do.
+          # An air-gapped site takes this one release across the gap and has to
+          # be able to check both kinds of document it holds afterwards: the
+          # manifest that says the binaries are ours, and the licence that says
+          # it may run them.
+          for key in license-signing.pub license-signing-pq.pub; do
+            if [ ! -s "repo/policy/keys/${key}" ]; then
+              echo "::error::policy/keys/${key} is missing or empty — see docs/KEY-MANAGEMENT.md"
+              exit 1
+            fi
+            cp "repo/policy/keys/${key}" out/
+          done
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -435,6 +447,11 @@ jobs:
           NOTES="${NOTES} take it from the repository or run cosign directly (see cosign-public.md)."
           NOTES="${NOTES} Also attached: the release coordination manifest, the aggregated"
           NOTES="${NOTES} cross-repo changelog, and the verified per-component SBOMs."
+          NOTES="${NOTES} The licence signing public keys (license-signing.pub,"
+          NOTES="${NOTES} license-signing-pq.pub) are attached too - a different pair, and the"
+          NOTES="${NOTES} one that answers whether a .lic file is ours:"
+          NOTES="${NOTES} ebpfsentinel-license inspect <file>.lic --public-key license-signing.pub"
+          NOTES="${NOTES} --pq-public-key license-signing-pq.pub."
           NOTES="${NOTES} See docs/CONSUMER-ENFORCEMENT.md."
           if [ "$REISSUE" = "true" ]; then
             NOTES="${NOTES}"$'\n\n'"REISSUED — this manifest replaces an earlier one for the same release. Reason: ${REASON}"

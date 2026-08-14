@@ -149,5 +149,27 @@ Keyless verification normally calls the public Sigstore transparency log
 
   Both signatures must verify. That is the natural trust path for enterprise
   air-gap deployments; the keyless image chain is the connected-site path.
+
   Licenses are signed with a *different* pair — see
-  [`KEY-MANAGEMENT.md`](KEY-MANAGEMENT.md).
+  [`KEY-MANAGEMENT.md`](KEY-MANAGEMENT.md). Its public halves are attached to
+  the same release and also ship inside every enterprise tarball, so the same
+  medium that crossed the gap carries what checks a licence:
+
+  ```bash
+  ebpfsentinel-license inspect ebpfsentinel-<org>.lic \
+    --public-key license-signing.pub \
+    --pq-public-key license-signing-pq.pub
+  ```
+
+  An estate that receives its keys as one offline bundle checks the whole set,
+  and the revocations with it, in one command:
+
+  ```bash
+  ebpfsentinel-license bundle offline-bundle.json \
+    --public-key license-signing.pub \
+    --pq-public-key license-signing-pq.pub \
+    --against /etc/ebpfsentinel/licences
+  ```
+
+  Both exit non-zero if anything failed to verify or if a file still on disk has
+  been revoked, so either is safe to run from a script that gates a rollout.
