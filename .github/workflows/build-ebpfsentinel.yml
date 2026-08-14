@@ -85,7 +85,11 @@ jobs:
           shared-key: ebpfsentinel-release-${{ matrix.arch }}
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler musl-tools llvm-dev flex bison wget cmake libpcap-dev
+        # No llvm-dev here: the LLVM bpf-linker links against is pinned, and
+        # installed by the install-bpf-linker action below. Installing the
+        # distribution's on top of it puts a second, older llvm-config on the
+        # PATH, which is what the action's own prefix pin exists to ignore.
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler musl-tools flex bison wget cmake libpcap-dev
 
       - name: Build static libpcap (musl)
         run: |
