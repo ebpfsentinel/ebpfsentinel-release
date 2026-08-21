@@ -25,7 +25,7 @@
 #   - secret COMPONENT_CHECKOUT_TOKEN: fine-grained PAT with contents:read on
 #     the component repositories (the private ones cannot be checked out with
 #     GITHUB_TOKEN from here)
-#   - each ghcr.io/ebpfsentinel/* package grants this repository Write under
+#   - each package this release publishes grants this repository Write under
 #     "Manage Actions access"; GITHUB_TOKEN then covers both the image push and
 #     the cosign signature push
 #   - environment `crates-io` with CARGO_REGISTRY_TOKEN, for anomstream

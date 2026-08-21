@@ -7,8 +7,8 @@ digest-pinned, and unusable if modified.
 The product repositories hold source and run CI; **this is the only one that
 builds and publishes**. One release, one changelog, one compatibility matrix: a
 customer should not have to visit five repositories to work out which versions
-belong together, and nothing can reach `ghcr.io/ebpfsentinel/*` without passing
-through a release run here.
+belong together, and every image and binary a customer runs is published by a
+release run here.
 
 - **Cutting a release**: [`docs/RELEASES.md`](docs/RELEASES.md)
 - **Release notes, per component**: [`changelogs/`](changelogs/README.md)

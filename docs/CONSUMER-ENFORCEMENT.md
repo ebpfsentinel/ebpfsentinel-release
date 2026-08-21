@@ -26,7 +26,7 @@ Install [Kyverno](https://kyverno.io/), then the policy:
 kubectl apply -f policy/kyverno-verify-images.yaml
 ```
 
-The cluster now rejects any `ghcr.io/ebpfsentinel/*` image lacking a valid
+The cluster now rejects any `ghcr.io/ebpfsentinel/ebpfsentinel*` image lacking a valid
 cosign signature from our release identity, and `mutateDigest: true` rewrites
 tags to the verified digest so running pods are immutable.
 

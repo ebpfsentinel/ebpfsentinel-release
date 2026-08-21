@@ -7,7 +7,7 @@
     check-release-manifest.py --crates <manifest>     # emit crate<TAB>version
     check-release-manifest.py --components <manifest> # emit name<TAB>repo<TAB>version<TAB>ref
 
-Seven repositories ship as one product. Which versions belong together is a
+Five components ship as one product. Which versions belong together is a
 fact that otherwise lives only in someone's head or in a chat message, and the
 first time that matters is when a customer asks "which operator works with the
 agent I have?" — or when a measurements manifest quietly omits a component

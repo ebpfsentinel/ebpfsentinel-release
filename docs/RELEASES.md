@@ -9,7 +9,7 @@ That is deliberate. A customer who has to visit five repositories to assemble
 one deployment has no way to tell which combination we actually tested, and a
 component that publishes on its own is a component that can quietly miss the
 signed inventory because nobody remembered to add it to a list. When the only
-thing that can push to `ghcr.io/ebpfsentinel/*` is a release run, the signed
+thing that can publish a component of the product is a release run, the signed
 inventory is complete by construction rather than by discipline.
 
 So each release is declared once, in `releases/<version>.yaml`, and every

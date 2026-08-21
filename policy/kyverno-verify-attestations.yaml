@@ -27,7 +27,7 @@ metadata:
     policies.kyverno.io/severity: high
     policies.kyverno.io/subject: Pod
     policies.kyverno.io/description: >-
-      Requires every ghcr.io/ebpfsentinel/* image to carry an SPDX SBOM
+      Requires every released eBPFsentinel image to carry an SPDX SBOM
       attestation and a vulnerability-scan attestation no older than 30 days,
       both signed by the eBPFsentinel release identity from the
       ebpfsentinel-release repository.
@@ -45,7 +45,16 @@ spec:
                 - Pod
       verifyImages:
         - imageReferences:
-            - "ghcr.io/ebpfsentinel/*"
+            - "ghcr.io/ebpfsentinel/ebpfsentinel"
+            - "ghcr.io/ebpfsentinel/ebpfsentinel:*"
+            - "ghcr.io/ebpfsentinel/ebpfsentinel-*"
+          # The same references kyverno-verify-images.yaml matches, and they
+          # must stay the same: a rule demanding attestations from images the
+          # signature rule does not claim would refuse an image nothing here
+          # signs, and one claiming fewer would leave a signed image with no
+          # inventory. This is the released product, which is all this
+          # repository publishes.
+          #
           # Signature verification and digest mutation belong to
           # kyverno-verify-images.yaml. Two policies rewriting the same tag is
           # a conflict waiting to happen.
@@ -73,7 +82,9 @@ spec:
                 - Pod
       verifyImages:
         - imageReferences:
-            - "ghcr.io/ebpfsentinel/*"
+            - "ghcr.io/ebpfsentinel/ebpfsentinel"
+            - "ghcr.io/ebpfsentinel/ebpfsentinel:*"
+            - "ghcr.io/ebpfsentinel/ebpfsentinel-*"
           mutateDigest: false
           verifyDigest: false
           required: true
