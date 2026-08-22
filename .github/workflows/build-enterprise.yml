@@ -89,7 +89,7 @@ jobs:
                       /usr/local/share/boost /opt/hostedtoolcache/CodeQL
           df -h /
 
-      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
       # Stamps the enterprise manifests before they enter the build context, so
       # the binary reports the release version rather than the placeholder.
@@ -228,7 +228,7 @@ jobs:
                       /usr/local/share/boost /opt/hostedtoolcache/CodeQL
           df -h /
 
-      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
       - uses: ./src/.github/actions/stamp-version
         with:
@@ -294,7 +294,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
       - name: Create and push multi-arch manifests
         id: manifests
