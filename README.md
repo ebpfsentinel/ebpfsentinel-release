@@ -73,7 +73,7 @@ repository recorded in the certificate, which is this repository. No public key 
 signing needs no stored secret.
 
 Because the signing workflows are reusable, the certificate subject names the
-*called* workflow, not the caller — so both are enforced: an allowlist of
+*called* workflow, not the caller - so both are enforced: an allowlist of
 caller repositories at signing time, and `githubWorkflowRepository` pinning at
 verification time. Verify with the subject alone and any repository calling
 these public workflows would pass.
