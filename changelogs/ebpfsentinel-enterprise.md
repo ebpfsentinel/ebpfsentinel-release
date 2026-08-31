@@ -184,6 +184,8 @@ First public release of the enterprise layer. Everything below is new relative t
 - HA moved to the Team tier
 - **A promotion reloads the datapath rather than adopting programs left on the interface.** An adopted attachment belongs to the previous generation of maps, so the node would run a datapath whose services write to maps nothing reads. Leftover attachments found after a step-down are reported as a diagnostic
 - **Packet mirroring reports unavailable on a node with no active datapath** instead of accepting the request and capturing nothing
+- **API: unassigning a role no longer needs a DELETE request body.** `DELETE /api/v1/rbac/assignments/{subject}/{role_id}` names the pair in the path. The old `DELETE /api/v1/rbac/assignments` is deprecated and kept for one release, with its body now optional and `?subject=&role_id=` accepted instead, because several HTTP clients and intermediaries strip or refuse a body on DELETE
+- **API: reloading the custom roles is a POST on an action rather than a PUT on the collection.** `POST /api/v1/rbac/roles/reload` replaces `PUT /api/v1/rbac/roles`, which promised to replace the collection the path names and instead reloaded the custom roles while leaving the built-in ones in place. The old spelling is deprecated and kept for one release
 
 ### Fixed
 
