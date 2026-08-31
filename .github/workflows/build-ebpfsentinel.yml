@@ -50,6 +50,7 @@ jobs:
   build-release:
     name: Build ${{ inputs.version }} (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
     permissions:
       contents: read
     strategy:
@@ -188,6 +189,7 @@ jobs:
     name: Bundle artifacts
     needs: [build-release]
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     permissions:
       contents: read
     steps:
@@ -228,6 +230,7 @@ jobs:
   build-ebpf:
     name: Build eBPF
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: read
     steps:
@@ -282,6 +285,7 @@ jobs:
     name: Image ${{ matrix.component }} (${{ matrix.platform }})
     needs: [build-ebpf]
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
     permissions:
       contents: read
       packages: write
@@ -382,6 +386,7 @@ jobs:
     needs: [build-images]
     if: inputs.push
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: read
       packages: write
@@ -463,6 +468,7 @@ jobs:
     name: Helm chart
     needs: [create-manifest]
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: read
       packages: write

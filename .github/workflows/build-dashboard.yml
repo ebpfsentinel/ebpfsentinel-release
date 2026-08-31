@@ -42,6 +42,7 @@ jobs:
   build-and-push:
     name: Build and push multi-arch image
     runs-on: ubuntu-24.04
+    timeout-minutes: 40
     permissions:
       contents: read
       packages: write
@@ -141,6 +142,7 @@ jobs:
     needs: [build-and-push]
     if: inputs.push
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     permissions:
       contents: read
       packages: write

@@ -51,6 +51,7 @@ jobs:
   sign:
     name: Sign blobs
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       id-token: write # keyless OIDC + provenance attestation
       contents: read

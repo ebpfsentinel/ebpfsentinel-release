@@ -76,6 +76,7 @@ jobs:
   dependencies:
     name: Advisories, licenses & policy floor
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -124,6 +125,7 @@ jobs:
     name: Secret scan
     if: inputs.secret-scan
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -150,6 +152,7 @@ jobs:
     name: Dependency review
     if: inputs.dependency-review && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: read
       pull-requests: read
@@ -164,6 +167,7 @@ jobs:
     name: CodeQL
     if: inputs.codeql
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       security-events: write
@@ -183,6 +187,7 @@ jobs:
     name: OpenSSF Scorecard
     if: inputs.scorecard
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     permissions:
       contents: read
       security-events: write

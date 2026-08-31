@@ -58,6 +58,7 @@ jobs:
   issue:
     name: Assemble & dual-sign
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: read
       packages: read
@@ -382,6 +383,7 @@ jobs:
     name: Publish manifest
     needs: [issue, sign-blobs]
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: write
     steps:

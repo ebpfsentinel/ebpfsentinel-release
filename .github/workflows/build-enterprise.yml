@@ -60,6 +60,7 @@ jobs:
   build-release:
     name: Build ${{ inputs.version }} (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
     permissions:
       contents: read
     strategy:
@@ -162,6 +163,7 @@ jobs:
     name: Bundle artifacts
     needs: [build-release]
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: read
     steps:
@@ -199,6 +201,7 @@ jobs:
   build-images:
     name: Image ${{ matrix.component }} (${{ matrix.platform }})
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
     permissions:
       contents: read
       packages: write
@@ -298,6 +301,7 @@ jobs:
     needs: [build-images]
     if: inputs.push
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: read
       packages: write

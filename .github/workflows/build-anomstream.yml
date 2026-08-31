@@ -37,6 +37,7 @@ jobs:
   verify:
     name: Gates
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     permissions:
       contents: read
     steps:
@@ -97,6 +98,7 @@ jobs:
     name: cargo publish --dry-run
     needs: [verify]
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     permissions:
       contents: read
     steps:
@@ -131,6 +133,7 @@ jobs:
     needs: [verify, publish-dry-run]
     if: inputs.publish
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     permissions:
       contents: read
       id-token: write # keyless build-provenance attestation

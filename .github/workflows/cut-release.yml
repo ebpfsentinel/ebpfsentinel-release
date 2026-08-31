@@ -66,6 +66,7 @@ jobs:
   plan:
     name: Plan ${{ inputs.release }}
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     permissions:
       contents: read
     outputs:
@@ -277,6 +278,7 @@ jobs:
       && !contains(needs.*.result, 'failure')
       && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: write # the one release we publish
       packages: read # reading back the digests of what was just pushed

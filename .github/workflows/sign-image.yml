@@ -62,6 +62,7 @@ jobs:
   sign:
     name: Sign & attest
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       id-token: write # keyless OIDC signing identity
       packages: write # push signature + attestation to GHCR
