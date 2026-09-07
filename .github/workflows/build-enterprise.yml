@@ -24,6 +24,10 @@ on:
         description: "Commit sha of the OSS agent the path deps resolve against"
         required: true
         type: string
+      anomstream-ref:
+        description: "Commit sha of anomstream the path deps resolve against"
+        required: true
+        type: string
       push:
         description: "Push images to GHCR (off for a dry run)"
         required: false
@@ -41,6 +45,7 @@ env:
   REGISTRY: ghcr.io
   COMPONENT_REPO: ebpfsentinel/ebpfsentinel-enterprise
   OSS_REPO_URL: https://github.com/ebpfsentinel/ebpfsentinel.git
+  ANOMSTREAM_REPO_URL: https://github.com/ebpfsentinel/anomstream.git
   IMAGE: ghcr.io/ebpfsentinel/ebpfsentinel-enterprise
   WARDEN_IMAGE: ghcr.io/ebpfsentinel/ebpfsentinel-enterprise-warden
   IMAGE_DESCRIPTION: eBPFsentinel Enterprise agent (licence-gated features on the OSS core)
@@ -131,6 +136,8 @@ jobs:
           build-args: |
             OSS_REPO=${{ env.OSS_REPO_URL }}
             OSS_REF=${{ inputs.oss-ref }}
+            ANOMSTREAM_REPO=${{ env.ANOMSTREAM_REPO_URL }}
+            ANOMSTREAM_REF=${{ inputs.anomstream-ref }}
             TELEMETRY_ENDPOINT=${{ vars.TELEMETRY_ENDPOINT }}
           cache-from: type=gha,scope=enterprise-agent-${{ matrix.arch }}
           cache-to: type=gha,scope=enterprise-agent-${{ matrix.arch }},mode=max
@@ -203,8 +210,8 @@ jobs:
   #
   # The split image pair, same as OSS: a rootless enterprise agent plus the
   # privileged warden that delegates it a bpffs. Both Dockerfiles fetch the OSS
-  # tree themselves at OSS_REF, so the pinned commit reaches the image build the
-  # same way it reaches the binary build above.
+  # and anomstream trees themselves at OSS_REF and ANOMSTREAM_REF, so the pinned
+  # commits reach the image build the same way they reach the binary build above.
   build-images:
     name: Image ${{ matrix.component }} (${{ matrix.platform }})
     runs-on: ${{ matrix.runner }}
@@ -298,6 +305,8 @@ jobs:
             VERSION=${{ inputs.version }}
             OSS_REPO=${{ env.OSS_REPO_URL }}
             OSS_REF=${{ inputs.oss-ref }}
+            ANOMSTREAM_REPO=${{ env.ANOMSTREAM_REPO_URL }}
+            ANOMSTREAM_REF=${{ inputs.anomstream-ref }}
             ${{ matrix.component == 'agent' && format('TELEMETRY_ENDPOINT={0}', vars.TELEMETRY_ENDPOINT) || '' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

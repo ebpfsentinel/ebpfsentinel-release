@@ -213,6 +213,7 @@ jobs:
       ref: ${{ needs.plan.outputs.enterprise_ref }}
       push: ${{ !inputs.dry-run }}
       oss-ref: ${{ needs.plan.outputs.ebpfsentinel_ref }}
+      anomstream-ref: ${{ needs.plan.outputs.anomstream_ref }}
     secrets: inherit
 
   operator:
