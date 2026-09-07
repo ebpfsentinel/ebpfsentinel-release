@@ -95,6 +95,21 @@ set.
 | `COMPONENT_CHECKOUT_TOKEN` | repository secret here | a fine-grained PAT with `contents: read` on the five component repositories. `GITHUB_TOKEN` cannot read another repository, and enterprise and dashboard are private. |
 | GHCR package access | each package's settings | add `ebpfsentinel-release` under *Manage Actions access* with the **Write** role, for every image and chart. That is what lets this repository's `GITHUB_TOKEN` push them. |
 | `crates-io` environment | repository environments here | holds `CARGO_REGISTRY_TOKEN` for the anomstream publish, and is where a required-reviewer gate goes if you want one. A publish cannot be undone, only yanked. |
+| `TELEMETRY_ENDPOINT` | repository **variable** here | where the agent's anonymous heartbeat goes. Reaches `cargo` as `EBPFSENTINEL_TELEMETRY_ENDPOINT` in the binaries job and as the `TELEMETRY_ENDPOINT` build argument for the two agent images. |
+
+`TELEMETRY_ENDPOINT` is a variable rather than a secret, deliberately. It is
+compiled into the agent with `option_env!`, so it is a string in a shipped
+binary and `strings` will show it to anyone who asks; masking it in a workflow
+log would be confidence nobody has earned. What the build-time injection buys
+is that the sources name no host, so a fork or a community build reports
+nowhere.
+
+Leaving it unset is safe and is the right thing outside a real release: the
+value arrives empty, an empty endpoint is refused at boot, and the agent says
+so once at `debug` and starts nothing. Only the two agent images take it - the
+warden brokers eBPF loads and sends no heartbeat, so its Dockerfile declares no
+such argument. A component repository's own `docker.yml` never sets it either,
+which is why a pull-request image is inert.
 
 ## What a component repository still owns
 

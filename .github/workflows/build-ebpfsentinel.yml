@@ -127,11 +127,18 @@ jobs:
         working-directory: src
         run: cargo xtask ebpf-build
 
+      # `EBPFSENTINEL_TELEMETRY_ENDPOINT` is where the agent's anonymous
+      # heartbeat goes. It is a repository variable rather than a secret on
+      # purpose: it is compiled into a shipped binary, `strings` finds it, and
+      # masking it in the log would be confidence nobody has earned. Unset, it
+      # is empty, an empty endpoint is refused at boot, and the tarball is
+      # inert - which is the right outcome for anything but a real release.
       - name: Build release binaries
         working-directory: src
         env:
           LIBPCAP_LIBDIR: /usr/local/musl/lib
           RUSTFLAGS: "-L native=/usr/local/musl/lib"
+          EBPFSENTINEL_TELEMETRY_ENDPOINT: ${{ vars.TELEMETRY_ENDPOINT }}
         run: cargo build --release --target ${{ matrix.target }} --bin ebpfsentinel-agent --bin warden
 
       # The OpenAPI `info.version` derives from CARGO_PKG_VERSION, which
@@ -369,8 +376,12 @@ jobs:
           push: ${{ inputs.push }}
           provenance: false
           sbom: false
+          # The endpoint goes to the agent only: the warden brokers eBPF loads
+          # and sends no heartbeat, so passing it there would be an argument its
+          # Dockerfile does not declare.
           build-args: |
             VERSION=${{ inputs.version }}
+            ${{ matrix.component == 'agent' && format('TELEMETRY_ENDPOINT={0}', vars.TELEMETRY_ENDPOINT) || '' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=ebpfsentinel-${{ matrix.component }}-${{ env.PLATFORM_ARCH }}

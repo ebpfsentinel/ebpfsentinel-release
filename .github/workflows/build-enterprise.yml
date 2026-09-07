@@ -122,9 +122,16 @@ jobs:
           push: false
           provenance: false
           sbom: false
+          # `TELEMETRY_ENDPOINT` is where the agent's anonymous heartbeat goes.
+          # A repository variable rather than a secret on purpose: it is
+          # compiled into a shipped binary, `strings` finds it, and masking it
+          # in the log would be confidence nobody has earned. Unset, it is
+          # empty, an empty endpoint is refused at boot, and the tarball is
+          # inert - which is the right outcome for anything but a real release.
           build-args: |
             OSS_REPO=${{ env.OSS_REPO_URL }}
             OSS_REF=${{ inputs.oss-ref }}
+            TELEMETRY_ENDPOINT=${{ vars.TELEMETRY_ENDPOINT }}
           cache-from: type=gha,scope=enterprise-agent-${{ matrix.arch }}
           cache-to: type=gha,scope=enterprise-agent-${{ matrix.arch }},mode=max
           outputs: type=local,dest=binaries
@@ -144,7 +151,7 @@ jobs:
           # is the one check that actually says the file is ours.
           for key in license-signing.pub license-signing-pq.pub; do
             if [ ! -s "release/policy/keys/${key}" ]; then
-              echo "::error::policy/keys/${key} is missing or empty — see docs/KEY-MANAGEMENT.md"
+              echo "::error::policy/keys/${key} is missing or empty - see docs/KEY-MANAGEMENT.md"
               exit 1
             fi
             install -m 0644 "release/policy/keys/${key}" "${STAGING}/"
@@ -284,10 +291,14 @@ jobs:
           push: ${{ inputs.push }}
           provenance: false
           sbom: false
+          # The endpoint goes to the agent only: the warden brokers eBPF loads
+          # and sends no heartbeat, so passing it there would be an argument its
+          # Dockerfile does not declare.
           build-args: |
             VERSION=${{ inputs.version }}
             OSS_REPO=${{ env.OSS_REPO_URL }}
             OSS_REF=${{ inputs.oss-ref }}
+            ${{ matrix.component == 'agent' && format('TELEMETRY_ENDPOINT={0}', vars.TELEMETRY_ENDPOINT) || '' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=enterprise-${{ matrix.component }}-${{ env.PLATFORM_ARCH }}
