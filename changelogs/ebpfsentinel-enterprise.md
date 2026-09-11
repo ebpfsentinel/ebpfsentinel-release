@@ -16,7 +16,7 @@ First public release of the enterprise layer. Everything below is new relative t
 
 #### Licensing
 
-- **Dual-signed licence format (v2)**: Ed25519 plus post-quantum ML-DSA-65. Ed25519-only v1 licences are no longer accepted
+- **One dual-signed licence format**: a three-line file carrying the payload, an Ed25519 signature and a post-quantum ML-DSA-65 signature, both of which must verify
 - **Machine fingerprint binding** and distributed licence checks
 - **Air-gap activation workflow**: offline request/response exchange, no outbound network needed
 - **Encrypted feature modules** decrypted lazily against the licence, with derived AES keys zeroized after use
