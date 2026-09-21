@@ -22,7 +22,7 @@
 # to produce the signed inventory.
 #
 # Prerequisites, once:
-#   - secret COMPONENT_CHECKOUT_TOKEN: fine-grained PAT with contents:read on
+#   - secret SIBLING_READ_TOKEN: fine-grained PAT with contents:read on
 #     the component repositories (the private ones cannot be checked out with
 #     GITHUB_TOKEN from here)
 #   - each package this release publishes grants this repository Write under

@@ -46,7 +46,7 @@ jobs:
           repository: ebpfsentinel/anomstream
           ref: ${{ inputs.ref }}
           path: src
-          token: ${{ secrets.COMPONENT_CHECKOUT_TOKEN || github.token }}
+          token: ${{ secrets.SIBLING_READ_TOKEN || github.token }}
 
       # Stamps the workspace Cargo.toml files and the README `cargo add`
       # snippets, so the gates run against the tree that will actually be
@@ -107,7 +107,7 @@ jobs:
           repository: ebpfsentinel/anomstream
           ref: ${{ inputs.ref }}
           path: src
-          token: ${{ secrets.COMPONENT_CHECKOUT_TOKEN || github.token }}
+          token: ${{ secrets.SIBLING_READ_TOKEN || github.token }}
 
       - uses: ./src/.github/actions/stamp-version
         with:
@@ -149,7 +149,7 @@ jobs:
           repository: ebpfsentinel/anomstream
           ref: ${{ inputs.ref }}
           path: src
-          token: ${{ secrets.COMPONENT_CHECKOUT_TOKEN || github.token }}
+          token: ${{ secrets.SIBLING_READ_TOKEN || github.token }}
 
       - uses: ./src/.github/actions/stamp-version
         with:

@@ -72,7 +72,7 @@ jobs:
           repository: ebpfsentinel/ebpfsentinel-operator
           ref: ${{ inputs.ref }}
           path: src
-          token: ${{ secrets.COMPONENT_CHECKOUT_TOKEN || github.token }}
+          token: ${{ secrets.SIBLING_READ_TOKEN || github.token }}
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 

@@ -11,7 +11,7 @@
 # list. See docs/REVOCATION.md.
 #
 # Required repository secrets: RELEASE_SIGNING_KEY_ED25519,
-# RELEASE_SIGNING_KEY_MLDSA, RELEASE_READ_TOKEN (see docs/KEY-MANAGEMENT.md).
+# RELEASE_SIGNING_KEY_MLDSA, SIBLING_READ_TOKEN (see docs/KEY-MANAGEMENT.md).
 name: issue-revocations
 
 on:
@@ -89,7 +89,7 @@ jobs:
 
       - name: Download the license tool
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_READ_TOKEN }}
+          GH_TOKEN: ${{ secrets.SIBLING_READ_TOKEN }}
           REL: ${{ inputs.license-tool-release }}
         run: |
           gh release download "v${REL}" \

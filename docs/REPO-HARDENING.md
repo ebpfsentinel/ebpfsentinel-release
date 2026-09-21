@@ -65,9 +65,12 @@ Create an Environment named `release-signing`:
 
 - **Required reviewers**: the release owners.
 - **Deployment branches and tags**: `main` and `v*` only.
-- Hold the `RELEASE_SIGNING_KEY_*` and `RELEASE_READ_TOKEN` secrets at the
-  *environment* level, not the repository level, so a workflow run from an
-  unapproved ref cannot read them.
+- Hold the `RELEASE_SIGNING_KEY_*` secrets at the *environment* level, not the
+  repository level, so a workflow run from an unapproved ref cannot read them.
+  `SIBLING_READ_TOKEN` is deliberately not held there: the build workflows run
+  on every release and cannot be reviewer-gated per run, so the same value has
+  to be readable at repository level anyway, and an environment copy of it
+  would gate nothing while suggesting it did.
 
 Then reference it from the operational workflows:
 
@@ -104,11 +107,17 @@ one job and a repo-wide write.
 ## 5. Secrets
 
 - Only three secrets exist: `RELEASE_SIGNING_KEY_ED25519`,
-  `RELEASE_SIGNING_KEY_MLDSA`, `RELEASE_READ_TOKEN`. Image and blob signing is
+  `RELEASE_SIGNING_KEY_MLDSA`, `SIBLING_READ_TOKEN`. Image and blob signing is
   keyless and needs **no** stored secret.
-- `RELEASE_READ_TOKEN` is a fine-grained token, read-only, scoped to
-  `ebpfsentinel-enterprise` contents, with the shortest workable expiry. It
-  exists only to download the license tool.
+- `SIBLING_READ_TOKEN` is a fine-grained token, read-only, with the shortest
+  workable expiry. It is the one token every repository here uses to read a
+  private sibling, under that one name, so that there is one thing to rotate
+  rather than five. In this repository it checks out the component repositories
+  and downloads the license tool. Those were two secrets until the second one's
+  scope turned out to be a subset of the first's: both needed `contents: read`
+  on `ebpfsentinel-enterprise`, and the wider of the two already sat ungated at
+  repository level, so the narrower one behind the environment gate was
+  protecting nothing that was not already reachable.
 - License signing keys are **never** stored here or in any CI system — see
   [`KEY-MANAGEMENT.md`](KEY-MANAGEMENT.md).
 - Enable **secret scanning** and **push protection** on the repo.

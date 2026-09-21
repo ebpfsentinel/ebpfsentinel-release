@@ -92,7 +92,7 @@ set.
 
 | What | Where | Why |
 |---|---|---|
-| `COMPONENT_CHECKOUT_TOKEN` | repository secret here | a fine-grained PAT with `contents: read` on the five component repositories. `GITHUB_TOKEN` cannot read another repository, and enterprise and dashboard are private. |
+| `SIBLING_READ_TOKEN` | repository secret here | a fine-grained PAT with `contents: read` on the five component repositories, and on `ebpfsentinel-enterprise` releases so the license tool can be downloaded. `GITHUB_TOKEN` cannot read another repository, and enterprise and dashboard are private. The same name and the same token are used by every other repository that reads a private sibling. |
 | GHCR package access | each package's settings | add `ebpfsentinel-release` under *Manage Actions access* with the **Write** role, for every image and chart. That is what lets this repository's `GITHUB_TOKEN` push them. |
 | `crates-io` environment | repository environments here | holds `CARGO_REGISTRY_TOKEN` for the anomstream publish, and is where a required-reviewer gate goes if you want one. A publish cannot be undone, only yanked. |
 | `TELEMETRY_ENDPOINT` | repository **variable** here | where the agent's anonymous heartbeat goes. Reaches `cargo` as `EBPFSENTINEL_TELEMETRY_ENDPOINT` in the binaries job and as the `TELEMETRY_ENDPOINT` build argument for the two agent images. |
