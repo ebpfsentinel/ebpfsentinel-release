@@ -1,4 +1,5 @@
-# Builds, pushes and signs the Enterprise agent from THIS repository.
+# Builds, pushes and signs the Enterprise agent, its warden and its Helm chart
+# from THIS repository.
 #
 # Enterprise binaries and images are published publicly and on purpose: a
 # customer has to be able to download and verify them without asking anyone.
@@ -434,3 +435,81 @@ jobs:
     with:
       image: ${{ needs.create-manifest.outputs.warden_image }}
       digest: ${{ needs.create-manifest.outputs.warden_digest }}
+
+  # ── Helm chart, stamped with the version of the images it deploys ──
+  #
+  # The chart points at the agent and warden images above, so it carries the
+  # same version and ships in the same run rather than behind a tag of its own.
+  helm:
+    name: Helm chart
+    needs: [create-manifest]
+    if: inputs.push
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.push.outputs.image }}
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ebpfsentinel/ebpfsentinel-enterprise
+          ref: ${{ inputs.ref }}
+          path: src
+          token: ${{ secrets.SIBLING_READ_TOKEN }}
+
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+
+      - name: Stamp version in Chart.yaml
+        working-directory: src
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          sed -i "s/^version: .*/version: ${VERSION}/" charts/ebpfsentinel-enterprise/Chart.yaml
+          sed -i "s/^appVersion: .*/appVersion: \"${VERSION}\"/" charts/ebpfsentinel-enterprise/Chart.yaml
+          grep -E '^(version|appVersion):' charts/ebpfsentinel-enterprise/Chart.yaml
+
+      - name: Lint chart
+        working-directory: src
+        run: helm lint charts/ebpfsentinel-enterprise/
+
+      - name: Log in to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Package chart
+        working-directory: src
+        run: helm package charts/ebpfsentinel-enterprise/
+
+      - name: Push chart to GHCR
+        id: push
+        working-directory: src
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          helm push "ebpfsentinel-enterprise-${VERSION}.tgz" "oci://ghcr.io/ebpfsentinel/charts" 2>&1 | tee push.log
+          DIGEST="$(grep -oiE 'sha256:[0-9a-f]{64}' push.log | head -1)"
+          if [ -z "$DIGEST" ]; then
+            echo "::error::could not parse the pushed chart digest from helm output"
+            exit 1
+          fi
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/ebpfsentinel/charts/ebpfsentinel-enterprise" >> "$GITHUB_OUTPUT"
+
+  # No SBOM: syft produces nothing meaningful for a Helm chart.
+  sign-helm:
+    name: Sign chart
+    needs: [helm]
+    permissions:
+      id-token: write
+      packages: write
+      contents: read
+    uses: ebpfsentinel/ebpfsentinel-release/.github/workflows/sign-image.yml@v1
+    with:
+      image: ${{ needs.helm.outputs.image }}
+      digest: ${{ needs.helm.outputs.digest }}
+      sbom: false
