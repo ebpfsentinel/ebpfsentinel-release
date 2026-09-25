@@ -44,6 +44,9 @@ components:
       - name: ebpfsentinel-agent
         tarball: "ebpfsentinel-{version}-linux-{arch}.tar.gz"
         arches: [amd64, arm64]
+      - name: warden
+        tarball: "ebpfsentinel-{version}-linux-{arch}.tar.gz"
+        arches: [amd64, arm64]
 
   - name: ebpfsentinel-enterprise
     repo: ebpfsentinel/ebpfsentinel-enterprise
@@ -58,6 +61,9 @@ components:
         tarball: "ebpfsentinel-enterprise-{version}-linux-{arch}.tar.gz"
         arches: [amd64, arm64]
       - name: ebpfsentinel-license
+        tarball: "ebpfsentinel-enterprise-{version}-linux-{arch}.tar.gz"
+        arches: [amd64, arm64]
+      - name: enterprise-warden
         tarball: "ebpfsentinel-enterprise-{version}-linux-{arch}.tar.gz"
         arches: [amd64, arm64]
 
