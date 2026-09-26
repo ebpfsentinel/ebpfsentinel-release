@@ -383,14 +383,24 @@ jobs:
       # image it names that nothing pushed would be discovered after the release
       # was public. Components excluded by `only` are checked too: their images
       # come from an earlier run and must still be in the registry at this tag.
+      #
+      # The digest each tag resolved to is written to `images-<version>.lock`
+      # and published with the release: a tag can be moved afterwards, and
+      # issue-measurements.yml refuses to measure one that no longer points
+      # where it pointed when this release was cut.
       - name: Check every declared image exists
+        env:
+          REL: ${{ inputs.release }}
         run: |
           set -euo pipefail
           missing=0
+          : > "assets/images-${REL}.lock"
           while read -r image; do
             [ -z "$image" ] && continue
-            if docker buildx imagetools inspect "$image" >/dev/null 2>&1; then
-              echo "ok  ${image}"
+            if digest="$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}' 2>/dev/null)" \
+               && printf '%s' "$digest" | grep -qE '^sha256:[0-9a-f]{64}$'; then
+              printf '%s\t%s\n' "$image" "$digest" >> "assets/images-${REL}.lock"
+              echo "ok  ${image}@${digest}"
             else
               echo "::error::${image} is declared in the manifest but is not in the registry"
               missing=1

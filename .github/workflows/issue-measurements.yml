@@ -145,6 +145,10 @@ jobs:
             done
             echo "::endgroup::"
           done
+          if ! gh release download "v${REL}" --pattern "images-${REL}.lock" --dir dl --clobber; then
+            echo "::error::images-${REL}.lock is not attached to release v${REL} - cut it again with cut-release"
+            exit 1
+          fi
 
       # A release asset is writable by anything holding contents:write on this
       # repository. Nothing downloaded is hashed, unpacked or executed until
@@ -223,9 +227,22 @@ jobs:
           done < binaries.tsv
 
           # --- Images: pin the multi-arch index digest --------------------
+          # The tag is resolved now and must still name the digest recorded in
+          # images-<version>.lock when the release was cut; a tag moved since
+          # is refused rather than measured as what we shipped.
           while IFS= read -r img; do
             [ -z "$img" ] && continue
-            add "${img%:*}" image "$(crane digest "$img")"
+            digest="$(crane digest "$img")"
+            locked="$(awk -F'\t' -v i="$img" '$1 == i {print $2; exit}' "dl/images-${REL}.lock")"
+            if [ -z "$locked" ]; then
+              echo "::error::${img} is not in images-${REL}.lock - the release was cut without it"
+              exit 1
+            fi
+            if [ "$digest" != "$locked" ]; then
+              echo "::error::${img} now resolves to ${digest} but the release was cut at ${locked}"
+              exit 1
+            fi
+            add "${img%:*}" image "$digest"
           done < images.txt
 
           # --- Crates: the registry's own checksum for the published version

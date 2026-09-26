@@ -84,7 +84,10 @@ them changed. The manifest is what states which versions belong together, and
 
    The product release `v<version>` itself carries one checksum file per
    signed bundle, `<bundle>-SHA256SUMS{,.sig,.crt}`, because each bundle is
-   signed separately and one shared name would keep only the last.
+   signed separately and one shared name would keep only the last. It also
+   carries `images-<version>.lock`, the digest every declared image tag
+   resolved to at cut time; `issue-measurements` refuses a tag that has moved
+   since.
 
 6. **Flip `status` to `stable`** when the release has soaked, in a second PR.
 
