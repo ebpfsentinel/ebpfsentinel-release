@@ -108,6 +108,20 @@ jobs:
             exit 1
           }
 
+      # Checked before anything is built, because the builds push the version
+      # tags: a published release would have its images replaced long before
+      # the publish step got round to refusing its assets.
+      - name: Refuse a version that is already published
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REL: ${{ inputs.release }}
+        run: |
+          set -euo pipefail
+          if draft="$(gh release view "v${REL}" --json isDraft --jq .isDraft 2>/dev/null)" && [ "$draft" != "true" ]; then
+            echo "::error::v${REL} is already published. Cut a new version."
+            exit 1
+          fi
+
       - name: Install tooling
         run: pip install --quiet --require-hashes -r scripts/requirements.txt
 
@@ -399,7 +413,15 @@ jobs:
           fi
 
           if gh release view "v${REL}" >/dev/null 2>&1; then
-            echo "v${REL} exists, replacing its assets"
+            # A draft is still ours to rebuild. A published release has been
+            # downloaded and may already be measured, so replacing its assets
+            # would change what a customer verified without them noticing: a
+            # fix ships as a new version instead.
+            if [ "$(gh release view "v${REL}" --json isDraft --jq .isDraft)" != "true" ]; then
+              echo "::error::v${REL} is already published; its assets are never replaced. Cut a new version."
+              exit 1
+            fi
+            echo "v${REL} is a draft, replacing its assets"
             gh release upload "v${REL}" assets/* --clobber
             gh release edit "v${REL}" "${args[@]}"
           else
