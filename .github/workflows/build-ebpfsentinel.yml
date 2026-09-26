@@ -396,6 +396,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write # build-provenance attestation
+      attestations: write
     outputs:
       agent_image: ${{ steps.manifests.outputs.agent_image }}
       agent_digest: ${{ steps.manifests.outputs.agent_digest }}
@@ -442,6 +444,24 @@ jobs:
             echo "${component}_digest=${digest}" >> "$GITHUB_OUTPUT"
             echo "${component}: ${image}@${digest}"
           done
+
+      # The per-platform builds push with BuildKit provenance off, so without
+      # this the index customers pull carries no SLSA statement at all. It is
+      # attached here, to that digest: which workflow run, at which source
+      # ref, produced this index.
+      - name: Attest agent build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.manifests.outputs.agent_image }}
+          subject-digest: ${{ steps.manifests.outputs.agent_digest }}
+          push-to-registry: true
+
+      - name: Attest warden build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.manifests.outputs.warden_image }}
+          subject-digest: ${{ steps.manifests.outputs.warden_digest }}
+          push-to-registry: true
 
   # cosign keyless signature + SBOM of each multi-arch manifest. Both images are
   # admission-gated, so an unsigned warden would block the agent it has to serve.
