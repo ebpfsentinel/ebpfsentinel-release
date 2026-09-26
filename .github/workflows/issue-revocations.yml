@@ -11,14 +11,14 @@
 # list. See docs/REVOCATION.md.
 #
 # Required secrets: RELEASE_SIGNING_KEY_ED25519 and RELEASE_SIGNING_KEY_MLDSA
-# in the `release-signing` environment, SIBLING_READ_TOKEN (see docs/KEY-MANAGEMENT.md).
+# in the `release-signing` environment (see docs/KEY-MANAGEMENT.md).
 name: issue-revocations
 
 on:
   workflow_dispatch:
     inputs:
       license-tool-release:
-        description: "Enterprise release whose ebpfsentinel-license tool signs the list, e.g. 2026.6.1"
+        description: "Release whose ebpfsentinel-license tool signs the list, e.g. 2026.6.1 (must have releases/<version>.yaml)"
         required: true
         type: string
 
@@ -90,19 +90,48 @@ jobs:
           echo "serial=$serial" >> "$GITHUB_OUTPUT"
           echo "publishing serial $serial (previous: $prev)"
 
-      - name: Download the license tool
+      # The tool that signs the list is the one a release shipped, taken from
+      # this repository's release where every tarball now lives, and it runs
+      # only once its keyless signature verifies against our identity and our
+      # repository: an unverified binary handed the signing keys would be the
+      # cheapest way to forge a revocation list.
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Download and verify the license tool
         env:
-          GH_TOKEN: ${{ secrets.SIBLING_READ_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           REL: ${{ inputs.license-tool-release }}
         run: |
-          gh release download "v${REL}" \
-            --repo "${ORG}/ebpfsentinel-enterprise" \
-            --pattern "ebpfsentinel-enterprise-${REL}-linux-amd64.tar.gz" \
-            --dir dl
-          tar xzf "dl/ebpfsentinel-enterprise-${REL}-linux-amd64.tar.gz" -C dl
-          install -m 0755 \
-            "dl/ebpfsentinel-enterprise-${REL}-linux-amd64/ebpfsentinel-license" \
-            ./ebpfsentinel-license
+          set -euo pipefail
+          if ! echo "$REL" | grep -qE '^[0-9]{4}\.([1-9]|1[0-2])\.[0-9]+$'; then
+            echo "::error::license-tool-release must be YYYY.M.X, got: $REL"
+            exit 1
+          fi
+          MANIFEST="releases/${REL}.yaml"
+          if [ ! -f "$MANIFEST" ]; then
+            echo "::error::$MANIFEST not found"
+            exit 1
+          fi
+          tarball="$(python3 scripts/check-release-manifest.py --binaries "$MANIFEST" \
+            | awk -F'\t' '$4 == "ebpfsentinel-license" && $5 == "amd64" {print $3; exit}')"
+          if [ -z "$tarball" ]; then
+            echo "::error::release $REL declares no ebpfsentinel-license binary for amd64"
+            exit 1
+          fi
+          mkdir -p dl ex
+          for f in "$tarball" "${tarball}.sig" "${tarball}.crt"; do
+            gh release download "v${REL}" --pattern "$f" --dir dl
+          done
+          bash policy/verify.sh blob "dl/${tarball}" "dl/${tarball}.sig" "dl/${tarball}.crt"
+          tar xzf "dl/${tarball}" -C ex
+          path="$(find ex -type f -name ebpfsentinel-license | head -1)"
+          if [ -z "$path" ]; then
+            echo "::error::ebpfsentinel-license not found inside ${tarball}"
+            exit 1
+          fi
+          install -m 0755 "$path" ./ebpfsentinel-license
 
       - name: Dual-sign the list
         env:

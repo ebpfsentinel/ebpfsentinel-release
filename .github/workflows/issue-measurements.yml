@@ -131,11 +131,26 @@ jobs:
           cut -f3 binaries.tsv | sort -u | while IFS= read -r tarball; do
             [ -z "$tarball" ] && continue
             echo "::group::v${REL} $tarball"
-            if ! gh release download "v${REL}" --pattern "$tarball" --dir dl --clobber; then
-              echo "::error::${tarball} is not attached to release v${REL} — the component build has not uploaded it"
-              exit 1
-            fi
+            for f in "$tarball" "${tarball}.sig" "${tarball}.crt"; do
+              if ! gh release download "v${REL}" --pattern "$f" --dir dl --clobber; then
+                echo "::error::${f} is not attached to release v${REL} - the component build has not uploaded it"
+                exit 1
+              fi
+            done
             echo "::endgroup::"
+          done
+
+      # A release asset is writable by anything holding contents:write on this
+      # repository. Nothing downloaded is hashed, unpacked or executed until
+      # its keyless signature verifies against our identity and our repository,
+      # so a swapped tarball fails here instead of being measured as ours, and
+      # the licence tool below never runs unless it is the one we built.
+      - name: Verify release tarball signatures
+        run: |
+          set -euo pipefail
+          cut -f3 binaries.tsv | sort -u | while IFS= read -r tarball; do
+            [ -z "$tarball" ] && continue
+            bash repo/policy/verify.sh blob "dl/${tarball}" "dl/${tarball}.sig" "dl/${tarball}.crt"
           done
 
       # One directory per tarball. Extracting them all into a shared tree would

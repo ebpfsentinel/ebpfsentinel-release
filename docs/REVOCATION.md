@@ -55,10 +55,13 @@ list at all cannot tell "nothing is revoked" from "the fetch was blocked".
 
 1. validates the schema and that `serial` is strictly greater than the
    currently published one;
-2. dual-signs the list with the release signing keys (Ed25519 + ML-DSA-65),
+2. takes the `ebpfsentinel-license` tool from the named release's tarball in
+   this repository and refuses to run it unless its keyless signature
+   verifies against the release identity and this repository;
+3. dual-signs the list with the release signing keys (Ed25519 + ML-DSA-65),
    so it verifies offline exactly like a measurements manifest;
-3. cosign-keyless signs it for the transparency log;
-4. replaces the `revocations/current` release, and also publishes an immutable
+4. cosign-keyless signs it for the transparency log;
+5. replaces the `revocations/current` release, and also publishes an immutable
    `revocations/v<serial>` release so the history stays auditable.
 
 `revocations/current` is deliberately mutable — a revocation list that could
