@@ -84,7 +84,8 @@ jobs:
 > (`sign-image.yml`, `sign-blob.yml`) deliberately do **not** use an
 > environment: they are called once per artifact by `cut-release.yml`, and a
 > human approval on each of the dozen signatures in one release run would be
-> unworkable. Their control is the `ALLOWED_CALLERS` gate plus
+> unworkable. Their control is the `ALLOWED_CALLERS` gate, a caller-ref gate
+> refusing any run not dispatched on `refs/heads/main`, plus
 > verification-time repository pinning. The
 > operational workflows (`issue-measurements`, `issue-revocations`) are
 > low-frequency and human-triggered, so they take the approval.

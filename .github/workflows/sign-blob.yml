@@ -70,6 +70,18 @@ jobs:
           fi
           echo "caller authorized: $CALLER"
 
+      # `github.ref` is the CALLER's ref too. Every legitimate signature comes
+      # from a run dispatched on main; a run from a branch or a pull request
+      # can carry workflow edits nobody reviewed, so it never reaches OIDC.
+      - name: Authorize caller ref
+        env:
+          CALLER_REF: ${{ github.ref }}
+        run: |
+          if [ "$CALLER_REF" != "refs/heads/main" ]; then
+            echo "::error::signing is only allowed from refs/heads/main, got: $CALLER_REF"
+            exit 1
+          fi
+
       # Both inputs come from a caller workflow and flow into shell globbing,
       # an artifact name and an action input. Constrain them to an inert
       # charset here rather than reasoning about each use site.

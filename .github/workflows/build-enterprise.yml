@@ -238,6 +238,9 @@ jobs:
   sign-blobs:
     name: Sign blobs
     needs: [bundle]
+    # A dry run publishes nothing, so it writes nothing to the transparency log
+    # either, and it can run from any branch the signing gate would refuse.
+    if: inputs.push
     permissions:
       id-token: write
       contents: read
