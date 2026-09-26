@@ -48,6 +48,12 @@ on:
         default: ""
         type: string
 
+# One manifest per release at a time: two runs would race on the same
+# measurements release. Queue, never cancel a run that holds the keys.
+concurrency:
+  group: issue-measurements-${{ inputs.release }}
+  cancel-in-progress: false
+
 permissions: {}
 
 env:

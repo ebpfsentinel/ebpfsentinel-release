@@ -53,6 +53,12 @@ on:
         default: false
         type: boolean
 
+# Two runs of the same release would push the same tags and race on one
+# GitHub release; queue them rather than cancel a half-signed one.
+concurrency:
+  group: cut-release-${{ inputs.release }}
+  cancel-in-progress: false
+
 permissions: {}
 
 jobs:

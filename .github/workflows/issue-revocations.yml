@@ -22,6 +22,12 @@ on:
         required: true
         type: string
 
+# The serial check reads the published list and then replaces it; two runs
+# at once would both pass it. Queue, never cancel.
+concurrency:
+  group: issue-revocations
+  cancel-in-progress: false
+
 permissions: {}
 
 env:
