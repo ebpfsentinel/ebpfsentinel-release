@@ -63,7 +63,10 @@ mint one can sign anything.
 
 Create an Environment named `release-signing`:
 
-- **Required reviewers**: the release owners.
+- **Required reviewers**: the release owners, with *Prevent self-review* on
+  as soon as there is more than one of them.
+- **Wait timer**: 10 minutes. Long enough to cancel a run somebody did not
+  mean to start, short enough not to matter for one that was meant.
 - **Deployment branches and tags**: `main` and `v*` only.
 - Hold the `RELEASE_SIGNING_KEY_*` secrets at the *environment* level, not the
   repository level, so a workflow run from an unapproved ref cannot read them.
@@ -89,6 +92,19 @@ jobs:
 > verification-time repository pinning. The
 > operational workflows (`issue-measurements`, `issue-revocations`) are
 > low-frequency and human-triggered, so they take the approval.
+
+### Immutable releases stay off, deliberately
+
+GitHub's *immutable releases* setting is repository-wide, and two releases here
+are replaced on purpose: `revocations/current` is the pointer consumers poll,
+and a measurements reissue moves the previous release to
+`measurements/v<version>-superseded-<stamp>` before publishing the new one.
+Turning the setting on would make revocation impossible, which is the one
+control that stops an artifact already in the field. What it would have
+guaranteed is held elsewhere: a product release (`v<version>`) is never
+replaced once published (`cut-release.yml` refuses), the digests it shipped
+are recorded in its `images-<version>.lock` asset and signed into the
+measurements, and every signature is in Rekor whatever happens to a release.
 
 ## 4. Actions configuration
 
@@ -182,3 +198,21 @@ possible even when prevention failed — but only if someone looks.
 5. Publish an advisory. Customers pinning digests are unaffected by anything
    published after their pin — say so explicitly, it is the question they
    will ask.
+
+## 10. If Sigstore is down
+
+Fulcio issues the certificate and Rekor records it, so a release cannot be
+signed while either is unavailable. That is the intended failure: there is no
+fallback to a long-lived key, because a key kept for emergencies is a key
+that can sign on any other day as well.
+
+- **Signing**: `cut-release.yml` fails in its signing jobs and publishes
+  nothing, since the publish job needs them. Re-run the failed jobs once
+  <https://status.sigstore.dev> is green; the release is still a draft, so the
+  rerun replaces its assets.
+- **Verification**: every signature and attestation carries its Rekor
+  inclusion bundle, and `cosign verify` and the admission policies check it
+  offline, so an outage does not stop a customer admitting an image signed
+  before it.
+- **Re-scan**: a missed `rescan-images.yml` run costs a week of margin on the
+  30-day scan-age rule. Dispatch it by hand once Sigstore is back.
