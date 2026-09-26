@@ -188,7 +188,10 @@ jobs:
             --set "jwt.signingKeys[0].privateKeyPem=test" > /dev/null
 
       - name: Log in to ghcr.io
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REGISTRY_USER: ${{ github.actor }}
+        run: printf '%s' "$REGISTRY_TOKEN" | helm registry login ghcr.io -u "$REGISTRY_USER" --password-stdin
 
       - name: Package chart
         working-directory: src
