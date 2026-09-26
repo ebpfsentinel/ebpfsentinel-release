@@ -10,8 +10,8 @@
 # and in the monotonic `serial`, which lets a consumer detect a replayed older
 # list. See docs/REVOCATION.md.
 #
-# Required repository secrets: RELEASE_SIGNING_KEY_ED25519,
-# RELEASE_SIGNING_KEY_MLDSA, SIBLING_READ_TOKEN (see docs/KEY-MANAGEMENT.md).
+# Required secrets: RELEASE_SIGNING_KEY_ED25519 and RELEASE_SIGNING_KEY_MLDSA
+# in the `release-signing` environment, SIBLING_READ_TOKEN (see docs/KEY-MANAGEMENT.md).
 name: issue-revocations
 
 on:
@@ -31,6 +31,9 @@ jobs:
   issue:
     name: Validate & dual-sign
     runs-on: ubuntu-latest
+    # The signing keys are environment secrets, released only to a run a
+    # reviewer approved from main (docs/REPO-HARDENING.md section 3).
+    environment: release-signing
     timeout-minutes: 30
     permissions:
       contents: read

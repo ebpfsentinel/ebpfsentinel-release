@@ -19,7 +19,7 @@
 # log), and attaches everything to a `measurements/v<version>` Release here —
 # together with the aggregated changelog and the verified per-component SBOMs.
 #
-# Required repository secrets:
+# Required secrets, held by the `release-signing` environment:
 #   RELEASE_SIGNING_KEY_ED25519  Ed25519 release signing private key (file content)
 #   RELEASE_SIGNING_KEY_MLDSA    ML-DSA-65 release signing private key seed (file content)
 #
@@ -58,6 +58,9 @@ jobs:
   issue:
     name: Assemble & dual-sign
     runs-on: ubuntu-latest
+    # The signing keys are environment secrets, released only to a run a
+    # reviewer approved from main (docs/REPO-HARDENING.md section 3).
+    environment: release-signing
     timeout-minutes: 45
     permissions:
       contents: read
