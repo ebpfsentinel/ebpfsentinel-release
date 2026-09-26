@@ -51,7 +51,7 @@ spec:
             - count: 1
               entries:
                 - keyless:
-                    subject: "https://github.com/ebpfsentinel/ebpfsentinel-release/.github/workflows/sign-image.yml@refs/tags/*"
+                    subject: "https://github.com/ebpfsentinel/ebpfsentinel-release/.github/workflows/sign-image.yml@refs/tags/v*"
                     issuer: "https://token.actions.githubusercontent.com"
                     additionalExtensions:
                       githubWorkflowRepository: ebpfsentinel/ebpfsentinel-release
