@@ -28,7 +28,7 @@ on:
       source-repo:
         description: "Repository the image was released from (certificate caller pinning)"
         required: false
-        default: ebpfsentinel/ebpfsentinel
+        default: ebpfsentinel/ebpfsentinel-release
         type: string
 
 permissions: {}

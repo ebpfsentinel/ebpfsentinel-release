@@ -26,7 +26,7 @@ ORG="${ORG:-ebpfsentinel}"
 ISSUER="https://token.actions.githubusercontent.com"
 ID_RE="^https://github.com/${ORG}/ebpfsentinel-release/.github/workflows/(sign-image|sign-blob)\.yml@refs/tags/v.*$"
 
-IMAGE="" MANIFEST="" ROGUE="" SOURCE_REPO="${SOURCE_REPO:-${ORG}/ebpfsentinel}"
+IMAGE="" MANIFEST="" ROGUE="" SOURCE_REPO="${SOURCE_REPO:-${ORG}/ebpfsentinel-release}"
 MANIFEST_REPO="${MANIFEST_REPO:-${ORG}/ebpfsentinel-release}"
 while [ "$#" -gt 0 ]; do
   case "$1" in
