@@ -324,10 +324,12 @@ jobs:
                | jq -r '.payload | @base64d | fromjson | .predicate' > "sboms/${name}.spdx.json"; then
               echo "SBOM verified: $name"
             else
-              # Not fatal: a release predating SBOM attestation still deserves
-              # a measurements manifest. Recorded so the gap is visible.
-              echo "::warning::no verifiable SBOM attestation for ${name}"
-              rm -f "sboms/${name}.spdx.json"
+              # Fatal: every image a release names has been built by
+              # cut-release.yml with an attested SBOM, so a missing or
+              # unverifiable one is a signing failure or a substituted image,
+              # and signing an inventory over it would vouch for either.
+              echo "::error::no verifiable SBOM attestation for ${name} (${ref%:*}@${digest})"
+              exit 1
             fi
           done
 
