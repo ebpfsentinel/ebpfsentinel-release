@@ -38,6 +38,10 @@ permissions: {}
 
 env:
   CARGO_TERM_COLOR: always
+  # The component checkout carries rust-toolchain.toml with channel
+  # "stable", which floats. This pins it to the workspace MSRV, and
+  # `cargo +nightly` for the eBPF objects still takes precedence over it.
+  RUSTUP_TOOLCHAIN: 1.98.1
   REGISTRY: ghcr.io
   # The component repository, not this one. It is what
   # org.opencontainers.image.source must point at: a reader following that
@@ -78,11 +82,20 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
         with:
+          toolchain: 1.98.1
           targets: ${{ matrix.target }}
 
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # nightly
         with:
+          toolchain: nightly
           components: rust-src
+
+      # The eBPF objects are built on a floating nightly. Record which one,
+      # so a regression can be traced to the compiler that produced it.
+      - name: Record toolchains
+        run: |
+          rustc +nightly -Vv
+          rustc +1.98.1 -Vv
 
       - name: Install system dependencies
         # No llvm-dev here: the LLVM bpf-linker links against is pinned, and
@@ -250,9 +263,22 @@ jobs:
           path: src
           token: ${{ secrets.SIBLING_READ_TOKEN || github.token }}
 
+      # xtask itself runs on RUSTUP_TOOLCHAIN; only the eBPF objects need nightly.
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: 1.98.1
+
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # nightly
         with:
+          toolchain: nightly
           components: rust-src
+
+      # The eBPF objects are built on a floating nightly. Record which one,
+      # so a regression can be traced to the compiler that produced it.
+      - name: Record toolchains
+        run: |
+          rustc +nightly -Vv
+          rustc +1.98.1 -Vv
 
       - uses: ./src/.github/actions/install-bpf-linker
 
