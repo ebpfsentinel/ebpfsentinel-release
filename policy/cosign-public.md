@@ -45,9 +45,11 @@ Use the helper:
 ./verify.sh blob ebpfsentinel-agent-amd64.tar.gz \
   ebpfsentinel-agent-amd64.tar.gz.sig ebpfsentinel-agent-amd64.tar.gz.crt
 
-# Whole release manifest, then the files:
-./verify.sh sums SHA256SUMS SHA256SUMS.sig SHA256SUMS.crt
-sha256sum -c SHA256SUMS
+# One checksum file per signed bundle on a product release, named after the
+# bundle (ebpfsentinel-SHA256SUMS, ebpfsentinel-enterprise-SHA256SUMS); the
+# measurements release carries a plain SHA256SUMS. Verify it, then the files:
+./verify.sh sums ebpfsentinel-SHA256SUMS ebpfsentinel-SHA256SUMS.sig ebpfsentinel-SHA256SUMS.crt
+sha256sum -c --ignore-missing ebpfsentinel-SHA256SUMS
 ```
 
 **Air-gapped?** Set `OFFLINE=1` to verify without reaching Rekor — images

@@ -299,11 +299,28 @@ jobs:
           pattern: "*-bundle"
           merge-multiple: true
 
+      # Every signed bundle carries its own SHA256SUMS. Merging them into one
+      # directory would keep whichever landed last and publish a checksum file
+      # covering one component's tarballs, so each is renamed after the bundle
+      # it signs. The per-file .sig/.crt/.bundle names are already unique.
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          path: assets
+          path: signatures
           pattern: "*-bundle-signatures"
-          merge-multiple: true
+
+      - name: Name each checksum file after its bundle
+        run: |
+          set -euo pipefail
+          for dir in signatures/*-bundle-signatures; do
+            [ -d "$dir" ] || continue
+            prefix="$(basename "$dir" -bundle-signatures)"
+            for f in "$dir"/SHA256SUMS*; do
+              [ -e "$f" ] || continue
+              mv "$f" "assets/${prefix}-$(basename "$f")"
+            done
+            mv "$dir"/* assets/ 2>/dev/null || true
+          done
+          ls -la assets
 
       - name: Check every declared tarball was produced
         run: |

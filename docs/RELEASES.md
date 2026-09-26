@@ -82,6 +82,10 @@ them changed. The manifest is what states which versions belong together, and
    | `release-signing-*.pub` | the public keys, so air-gapped verification needs no network |
    | `license-signing*.pub` | the other pair, the one that says a customer `.lic` is ours |
 
+   The product release `v<version>` itself carries one checksum file per
+   signed bundle, `<bundle>-SHA256SUMS{,.sig,.crt}`, because each bundle is
+   signed separately and one shared name would keep only the last.
+
 6. **Flip `status` to `stable`** when the release has soaked, in a second PR.
 
 If one component fails to build, fix it, update its `ref` in the manifest, and
