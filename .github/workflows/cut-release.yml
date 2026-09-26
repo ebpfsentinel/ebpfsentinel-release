@@ -202,7 +202,10 @@ jobs:
       version: ${{ needs.plan.outputs.ebpfsentinel_version }}
       ref: ${{ needs.plan.outputs.ebpfsentinel_ref }}
       push: ${{ !inputs.dry-run }}
-    secrets: inherit
+    # Named rather than inherited: a build sees the secrets it declares and
+    # none of the others, the release signing keys least of all.
+    secrets:
+      SIBLING_READ_TOKEN: ${{ secrets.SIBLING_READ_TOKEN }}
 
   enterprise:
     name: ebpfsentinel-enterprise
@@ -220,7 +223,10 @@ jobs:
       push: ${{ !inputs.dry-run }}
       oss-ref: ${{ needs.plan.outputs.ebpfsentinel_ref }}
       anomstream-ref: ${{ needs.plan.outputs.anomstream_ref }}
-    secrets: inherit
+    # Named rather than inherited: a build sees the secrets it declares and
+    # none of the others, the release signing keys least of all.
+    secrets:
+      SIBLING_READ_TOKEN: ${{ secrets.SIBLING_READ_TOKEN }}
 
   operator:
     name: ebpfsentinel-operator
@@ -236,7 +242,10 @@ jobs:
       version: ${{ needs.plan.outputs.operator_version }}
       ref: ${{ needs.plan.outputs.operator_ref }}
       push: ${{ !inputs.dry-run }}
-    secrets: inherit
+    # Named rather than inherited: a build sees the secrets it declares and
+    # none of the others, the release signing keys least of all.
+    secrets:
+      SIBLING_READ_TOKEN: ${{ secrets.SIBLING_READ_TOKEN }}
 
   dashboard:
     name: ebpfsentinel-dashboard
@@ -253,7 +262,10 @@ jobs:
       ref: ${{ needs.plan.outputs.dashboard_ref }}
       push: ${{ !inputs.dry-run }}
       oss-ref: ${{ needs.plan.outputs.ebpfsentinel_ref }}
-    secrets: inherit
+    # Named rather than inherited: a build sees the secrets it declares and
+    # none of the others, the release signing keys least of all.
+    secrets:
+      SIBLING_READ_TOKEN: ${{ secrets.SIBLING_READ_TOKEN }}
 
   anomstream:
     name: anomstream
@@ -268,7 +280,11 @@ jobs:
       version: ${{ needs.plan.outputs.anomstream_version }}
       ref: ${{ needs.plan.outputs.anomstream_ref }}
       publish: ${{ !inputs.dry-run }}
-    secrets: inherit
+    # Named rather than inherited: a build sees the secrets it declares and
+    # none of the others, the release signing keys least of all.
+    secrets:
+      SIBLING_READ_TOKEN: ${{ secrets.SIBLING_READ_TOKEN }}
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
   # ── The one release we publish ────────────────────────────────────
   publish:

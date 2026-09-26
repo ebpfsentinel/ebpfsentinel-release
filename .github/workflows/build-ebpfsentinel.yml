@@ -11,6 +11,10 @@ name: build-ebpfsentinel
 
 on:
   workflow_call:
+    secrets:
+      SIBLING_READ_TOKEN:
+        description: "Read token for the private component repositories (optional for public ones)"
+        required: false
     inputs:
       version:
         description: "Version to stamp and publish (YYYY.M.X)"

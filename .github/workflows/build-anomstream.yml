@@ -13,6 +13,13 @@ name: build-anomstream
 
 on:
   workflow_call:
+    secrets:
+      SIBLING_READ_TOKEN:
+        description: "Read token for the private component repositories (optional for public ones)"
+        required: false
+      CARGO_REGISTRY_TOKEN:
+        description: "crates.io token; the crates-io environment's copy takes precedence when it holds one"
+        required: false
     inputs:
       version:
         description: "Version to publish (YYYY.M.X)"
