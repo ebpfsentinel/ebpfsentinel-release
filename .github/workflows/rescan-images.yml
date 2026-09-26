@@ -1,0 +1,100 @@
+# Re-scan every supported image and attest the result again.
+#
+# policy/kyverno-verify-attestations.yaml refuses an image whose newest signed
+# vulnerability scan is older than 720h. A scan attested only at release time
+# therefore expires thirty days after the release, and a customer enforcing
+# that rule would be unable to reschedule a pod of a release they are still
+# supported on. This workflow keeps the statement fresh: it re-scans the exact
+# digests each release recorded in its `images-<version>.lock` asset and
+# attests the new result, without signing the image again and without a new
+# SBOM, because neither of those changes when the vulnerability database does.
+#
+# It runs from main (schedule and dispatch both do), which is what the caller
+# ref gate in sign-image.yml requires. Yanked releases are skipped: refreshing
+# the scan of an image we told customers to stop running would keep it
+# admissible.
+name: rescan-images
+
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch: {}
+
+concurrency:
+  group: rescan-images
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  plan:
+    name: List supported digests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.list.outputs.matrix }}
+      count: ${{ steps.list.outputs.count }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install manifest tooling
+        run: python3 -m pip install --quiet --require-hashes -r scripts/requirements.txt
+
+      - name: Collect digests from release lock files
+        id: list
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          : > digests.tsv
+          for manifest in releases/*.yaml; do
+            [ "$(basename "$manifest")" = TEMPLATE.yaml ] && continue
+            status=$(python3 -c 'import sys,yaml; print(yaml.safe_load(open(sys.argv[1]))["status"])' "$manifest")
+            rel=$(basename "$manifest" .yaml)
+            if [ "$status" = yanked ]; then
+              echo "skip ${rel}: yanked"
+              continue
+            fi
+            if ! gh release download "v${rel}" --repo "$REPO" --pattern "images-${rel}.lock" --dir locks --clobber 2>/dev/null; then
+              echo "::warning::release v${rel} has no images-${rel}.lock asset; its images are not re-scanned"
+              continue
+            fi
+            # Lock lines are `image:tag<TAB>digest`; sign-image wants the
+            # tagless path.
+            awk -F'\t' 'NF==2 { sub(/:[^:/]+$/, "", $1); print $1 "\t" $2 }' "locks/images-${rel}.lock" >> digests.tsv
+          done
+          sort -u digests.tsv -o digests.tsv
+          count=$(wc -l < digests.tsv)
+          if [ "$count" -gt 256 ]; then
+            echo "::error::${count} digests exceed the 256-entry job matrix limit"
+            exit 1
+          fi
+          matrix=$(jq -Rsc 'split("\n") | map(select(length > 0) | split("\t") | {image: .[0], digest: .[1]}) | {include: .}' digests.tsv)
+          echo "matrix=${matrix}" >> "$GITHUB_OUTPUT"
+          echo "count=${count}" >> "$GITHUB_OUTPUT"
+          echo "digests to re-scan: ${count}"
+
+  rescan:
+    name: Re-scan ${{ matrix.image }}
+    needs: plan
+    if: ${{ needs.plan.outputs.count != '0' }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    permissions:
+      id-token: write
+      packages: write
+      contents: read
+    uses: ebpfsentinel/ebpfsentinel-release/.github/workflows/sign-image.yml@v1
+    with:
+      image: ${{ matrix.image }}
+      digest: ${{ matrix.digest }}
+      sign: false
+      sbom: false
+      vex: false
+      vuln-scan: true

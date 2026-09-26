@@ -31,6 +31,11 @@ on:
         description: "Image digest, e.g. sha256:abc123..."
         required: true
         type: string
+      sign:
+        description: "Sign the image. Off only for a re-scan of a digest that was signed at release time"
+        required: false
+        default: true
+        type: boolean
       sbom:
         description: "Generate and attest an SPDX SBOM"
         required: false
@@ -118,6 +123,7 @@ jobs:
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - name: Sign image (keyless)
+        if: ${{ inputs.sign }}
         env:
           REF: ${{ inputs.image }}@${{ inputs.digest }}
         run: cosign sign --yes "$REF"

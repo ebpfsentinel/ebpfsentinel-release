@@ -70,6 +70,11 @@ A scan attestation is a statement about the day it ran, not about today. Treat
 an old one as an old one: the policy bounds it at 30 days, and the honest read
 of a passing check is "nothing known then", not "nothing wrong now".
 
+Every Monday the release repository re-scans the digests of each release that
+is not yanked and attests the new result, so an image of a supported release
+keeps a scan younger than a week and stays admissible. A yanked release gets
+no new scan, so its images fall out of admission within 30 days of the yank.
+
 ## 2. GitOps: deploy by digest
 
 Public packages need **no pull secret**. Pin images by digest so what you
