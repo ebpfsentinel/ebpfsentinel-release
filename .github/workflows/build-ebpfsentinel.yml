@@ -80,11 +80,6 @@ jobs:
         with:
           components: rust-src
 
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          workspaces: src
-          shared-key: ebpfsentinel-release-${{ matrix.arch }}
-
       - name: Install system dependencies
         # No llvm-dev here: the LLVM bpf-linker links against is pinned, and
         # installed by the install-bpf-linker action below. Installing the
@@ -255,11 +250,6 @@ jobs:
         with:
           components: rust-src
 
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          workspaces: src
-          shared-key: ebpfsentinel-ebpf
-
       - uses: ./src/.github/actions/install-bpf-linker
 
       - name: Install build dependencies
@@ -387,8 +377,6 @@ jobs:
             ${{ matrix.component == 'agent' && format('TELEMETRY_ENDPOINT={0}', vars.TELEMETRY_ENDPOINT) || '' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=ebpfsentinel-${{ matrix.component }}-${{ env.PLATFORM_ARCH }}
-          cache-to: type=gha,scope=ebpfsentinel-${{ matrix.component }}-${{ env.PLATFORM_ARCH }},mode=max
           outputs: type=image,oci-mediatypes=true
 
   # ── Multi-arch manifests ──────────────────────────────────────────

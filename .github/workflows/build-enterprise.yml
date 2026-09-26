@@ -96,8 +96,7 @@ jobs:
           path: release
 
       # The runner ships ~14 GB free and this build compiles the workspace, ONNX
-      # Runtime and the kernel programs on it, then stages a `mode=max` cache
-      # export beside them. Dropping the preinstalled toolchains this build never
+      # Runtime and the kernel programs on it. Dropping the preinstalled toolchains this build never
       # touches buys the ~25 GB that keeps it off `No space left on device`.
       - name: Reclaim runner disk
         run: |
@@ -114,9 +113,9 @@ jobs:
           version: ${{ inputs.version }}
 
       # The runner is already the target architecture, so this is a native build
-      # and needs no `platforms:`. The cache scope is deliberately the one the
-      # image job uses: the ONNX Runtime layer is by far the most expensive in
-      # this build and there is no reason to compile it twice per release.
+      # and needs no `platforms:`. No build cache is read or written: a release
+      # is compiled from the source at its ref and nothing a pull request run
+      # could have left in the Actions cache.
       - name: Build release binaries
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         env:
@@ -140,13 +139,11 @@ jobs:
             ANOMSTREAM_REPO=${{ env.ANOMSTREAM_REPO_URL }}
             ANOMSTREAM_REF=${{ inputs.anomstream-ref }}
             TELEMETRY_ENDPOINT=${{ vars.TELEMETRY_ENDPOINT }}
-          cache-from: type=gha,scope=enterprise-agent-${{ matrix.arch }}
-          cache-to: type=gha,scope=enterprise-agent-${{ matrix.arch }},mode=max
           outputs: type=local,dest=binaries
 
       # The broker the rootless agent asks for its bpffs. Built from its own
       # Dockerfile's export stage so the tarball and the warden image ship the
-      # same bytes, under the cache scope the warden image job writes.
+      # same bytes.
       - name: Build warden binary
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         env:
@@ -163,7 +160,6 @@ jobs:
             OSS_REF=${{ inputs.oss-ref }}
             ANOMSTREAM_REPO=${{ env.ANOMSTREAM_REPO_URL }}
             ANOMSTREAM_REF=${{ inputs.anomstream-ref }}
-          cache-from: type=gha,scope=enterprise-warden-${{ matrix.arch }}
           outputs: type=local,dest=warden
 
       - name: Create release tarball
@@ -299,8 +295,8 @@ jobs:
         env:
           platform: ${{ matrix.platform }}
 
-      # Same reason as the binary job: this is the identical build tree plus a
-      # `mode=max` cache export on a runner that starts with ~14 GB free.
+      # Same reason as the binary job: this is the identical build tree on a
+      # runner that starts with ~14 GB free.
       - name: Reclaim runner disk
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
@@ -353,8 +349,6 @@ jobs:
             ${{ matrix.component == 'agent' && format('TELEMETRY_ENDPOINT={0}', vars.TELEMETRY_ENDPOINT) || '' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=enterprise-${{ matrix.component }}-${{ env.PLATFORM_ARCH }}
-          cache-to: type=gha,scope=enterprise-${{ matrix.component }}-${{ env.PLATFORM_ARCH }},mode=max
           outputs: type=image,oci-mediatypes=true
 
   # Both images in one job rather than a matrix: the signing jobs below need a
