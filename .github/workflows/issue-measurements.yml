@@ -423,12 +423,13 @@ jobs:
           name: measurements-signatures
           path: pub
       # A measurements release is evidence about what we shipped. Silently
-      # replacing one lets a later run rewrite history — a customer who pinned
+      # replacing one lets a later run rewrite history - a customer who pinned
       # digests from the first manifest would have no way to notice. Publishing
       # is therefore append-only: an existing tag is an error unless the
-      # operator explicitly asks to reissue and says why, and the reason is
-      # recorded in the release notes.
+      # operator explicitly asks to reissue and says why, the reason is
+      # recorded in both releases' notes, and the earlier one is kept.
       - name: Refuse to overwrite an existing manifest
+        id: existing
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # No checkout in this job, so gh has no git remote to infer from.
@@ -450,8 +451,20 @@ jobs:
             echo "::error::reissue=true requires reissue-reason — it is recorded in the release notes as the audit trail."
             exit 1
           fi
-          echo "::warning::replacing existing $TAG — reason: $REASON"
-          gh release delete "$TAG" --yes --cleanup-tag
+          # The earlier manifest is evidence too, and a customer may hold digests
+          # pinned from it. It is moved aside under a superseded tag pointing at
+          # the same commit, never deleted, so both stay downloadable and the
+          # difference between them can be read by anyone.
+          set -euo pipefail
+          OLD="${TAG}-superseded-$(date -u +%Y%m%dT%H%M%SZ)"
+          echo "::warning::superseding existing $TAG as $OLD - reason: $REASON"
+          sha="$(gh api "repos/${GH_REPO}/git/ref/tags/${TAG}" --jq .object.sha)"
+          gh api -X POST "repos/${GH_REPO}/git/refs" -f ref="refs/tags/${OLD}" -f sha="$sha" >/dev/null
+          body="$(gh release view "$TAG" --json body --jq .body)"
+          gh release edit "$TAG" --tag "$OLD" --title "Measurements ${REL} (superseded)" \
+            --notes "SUPERSEDED by ${TAG}. Reason: ${REASON}"$'\n\n'"${body}"
+          gh api -X DELETE "repos/${GH_REPO}/git/refs/tags/${TAG}"
+          echo "superseded=${OLD}" >> "$GITHUB_OUTPUT"
 
       - name: Create measurements release
         env:
@@ -461,6 +474,7 @@ jobs:
           REL: ${{ inputs.release }}
           REISSUE: ${{ inputs.reissue }}
           REASON: ${{ inputs.reissue-reason }}
+          SUPERSEDED: ${{ steps.existing.outputs.superseded }}
         run: |
           TAG="measurements/v${REL}"
           NOTES="Dual-signed (Ed25519 + ML-DSA-65) release measurements for ${REL}."
@@ -480,7 +494,7 @@ jobs:
           NOTES="${NOTES} --pq-public-key license-signing-pq.pub."
           NOTES="${NOTES} See docs/CONSUMER-ENFORCEMENT.md."
           if [ "$REISSUE" = "true" ]; then
-            NOTES="${NOTES}"$'\n\n'"REISSUED — this manifest replaces an earlier one for the same release. Reason: ${REASON}"
+            NOTES="${NOTES}"$'\n\n'"REISSUED - this manifest replaces an earlier one for the same release, kept at ${SUPERSEDED}. Reason: ${REASON}"
           fi
           gh release create "$TAG" pub/* \
             --title "Measurements ${REL}" \
