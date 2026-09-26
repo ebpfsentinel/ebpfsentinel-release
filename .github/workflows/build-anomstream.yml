@@ -86,7 +86,11 @@ jobs:
         run: cargo test --workspace --no-default-features
 
       - name: Install cargo-audit and cargo-deny
-        run: cargo install --locked cargo-audit cargo-deny
+        # Pinned so a new release of either tool cannot change what this gate
+        # accepts on the day a crate is published.
+        run: |
+          cargo install --locked cargo-audit --version 0.22.2
+          cargo install --locked cargo-deny --version 0.20.2
 
       - name: cargo audit
         working-directory: src

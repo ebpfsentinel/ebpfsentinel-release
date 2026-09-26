@@ -109,7 +109,7 @@ jobs:
           }
 
       - name: Install tooling
-        run: pip install --quiet pyyaml
+        run: pip install --quiet --require-hashes -r scripts/requirements.txt
 
       # Refuses a manifest whose components have no notes for the version they
       # declare, before anything is built. A release nobody can read is caught
