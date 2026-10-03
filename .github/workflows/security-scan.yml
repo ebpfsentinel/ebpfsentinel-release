@@ -1,6 +1,6 @@
 # Centralized code-security scan, called by every product repo.
 #
-# The point is not that each repo runs a scanner — they already can. The point
+# The point is not that each repo runs a scanner - they already can. The point
 # is that the *policy* lives in one place: a repo cannot weaken its dependency
 # rules, silence an advisory, or drop a lane without a PR against this
 # repository, reviewed by the release owners.
@@ -47,7 +47,7 @@ on:
         type: boolean
         default: true
       codeql:
-        description: "Run CodeQL. Off by default — Rust support is recent and the dependency lanes carry the weight here."
+        description: "Run CodeQL. Off by default - Rust support is recent and the dependency lanes carry the weight here."
         required: false
         type: boolean
         default: false
@@ -82,7 +82,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # The policy floor lives here, not in the repo being scanned — that is
+      # The policy floor lives here, not in the repo being scanned - that is
       # the whole point. Pinned to the same v1 the caller resolved.
       - name: Fetch the central policy
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

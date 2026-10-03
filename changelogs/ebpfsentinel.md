@@ -1,4 +1,4 @@
-# Changelog — ebpfsentinel
+# Changelog - ebpfsentinel
 
 All notable changes to this project will be documented in this file.
 
@@ -60,12 +60,12 @@ Within each release, entries are grouped **Added → Changed → Fixed → Secur
 ### Added
 
 #### Kernel Netfilter Integration (kernel 6.9+)
-- **Kernel-native connection tracking**: conntrack delegated to the in-kernel netfilter engine via kfuncs (`bpf_skb_ct_lookup`, `bpf_xdp_ct_lookup`, `bpf_ct_release`) — userspace shadow CT tables removed
+- **Kernel-native connection tracking**: conntrack delegated to the in-kernel netfilter engine via kfuncs (`bpf_skb_ct_lookup`, `bpf_xdp_ct_lookup`, `bpf_ct_release`) - userspace shadow CT tables removed
 - **Flow termination via netfilter**: `kill_flow` marks flows `IPS_DYING` in the IDS block and XDP drop paths so the kernel tears down the connection
 - **Kernel-native NAT**: `bpf_ct_set_nat_info` delegation at every DNAT/SNAT application site
-- **BPF token delegation end-to-end**: load and attach all eBPF programs with a BPF token alone — no `CAP_BPF`/`CAP_SYS_ADMIN`/`CAP_PERFMON`
+- **BPF token delegation end-to-end**: load and attach all eBPF programs with a BPF token alone - no `CAP_BPF`/`CAP_SYS_ADMIN`/`CAP_PERFMON`
 - **Rootless eBPF loading**: userns launcher self-maps and loads the program set without root
-- **kfunc bindings spanning kernel 5.18–6.9**: netfilter CT allocate/lookup/NAT, 6.4–6.5 dynptr (`SkbDynptr`/`XdpDynptr`), 6.3 XDP metadata, 6.9 arena pages, IPsec/FOU-GUE steering, in-kernel container resolution, per-tenant RCU enforcement
+- **kfunc bindings spanning kernel 5.18-6.9**: netfilter CT allocate/lookup/NAT, 6.4-6.5 dynptr (`SkbDynptr`/`XdpDynptr`), 6.3 XDP metadata, 6.9 arena pages, IPsec/FOU-GUE steering, in-kernel container resolution, per-tenant RCU enforcement
 - **Userspace conntrack coherence**: `/proc/net/nf_conntrack` reader, conntrack event stream over SSE, and `conntrack watch`/`list`/`status` CLI subcommands
 
 #### Privilege Isolation (warden)
@@ -167,7 +167,7 @@ Within each release, entries are grouped **Added → Changed → Fixed → Secur
 - **Config disclosure**: webhook `Authorization` header values and `api_key_salt` masked in `sanitized()` (were leaking via `GET /api/v1/config`)
 - **Path traversal**: reject `..` in the key/cert path allowlist (`starts_with` was bypassable)
 - **JWKS**: plaintext fetch restricted to loopback, inline refresh cooldown caps unauthenticated DoS amplification
-- **No error-detail leakage** in HTTP 500 bodies — logged server-side, generic message returned
+- **No error-detail leakage** in HTTP 500 bodies - logged server-side, generic message returned
 - **DoS guards**: reject overflowing Redis bulk length, bound STIX/JSON feed parsing to `max_iocs`, compile-time-safe DNS header bounds, runtime capture-id path-safety
 
 ## [2026.3.2] - 2026-03-28
@@ -255,7 +255,7 @@ Within each release, entries are grouped **Added → Changed → Fixed → Secur
 
 - **eBPF verifier failures**: tc-conntrack, tc-nat, uprobe-dlp, xdp-firewall, xdp-ratelimit compatibility fixes
 - **DLP auto-detect SSL library**: OpenSSL/BoringSSL path detection for uprobe attachment
-- **JA4 pipeline**: end-to-end wiring — compute in L7 events, cache, enrich alerts, real cache in API
+- **JA4 pipeline**: end-to-end wiring - compute in L7 events, cache, enrich alerts, real cache in API
 - **OTLP config**: wired tests, DoH/DoT metrics, custom resolvers
 - **tc-dns SKB linearization**: jumbo frame support via `bpf_skb_pull_data`
 - **tc-ids `ctx.len()`**: use instead of linear buffer size for `bpf_skb_pull_data`
@@ -328,7 +328,7 @@ Within each release, entries are grouped **Added → Changed → Fixed → Secur
 - Consolidated ratelimit bucket union (4 maps to 1, 75% memory reduction)
 - Two-level LB HashMap architecture (services 64 to 4096, backends/svc 16 to 256)
 - Map pinning for shared CT_TABLE and INTERFACE_GROUPS (~49MB memory savings)
-- Tiered RingBuf events: L7 (192B/576B), DLP (280B/4120B) — 67-94% savings
+- Tiered RingBuf events: L7 (192B/576B), DLP (280B/4120B) - 67-94% savings
 - User RingBuf infrastructure for atomic config push (eBPF side ready, userspace pending aya API)
 - 24 fuzz targets covering all domain engines and parsers
 - Docker multi-arch image (distroless/static)

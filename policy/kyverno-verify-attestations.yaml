@@ -1,7 +1,7 @@
 # Require signed attestations, not just a signature.
 #
 # kyverno-verify-images.yaml answers "did we build this?". This answers
-# "and what did we know about it?" — an SBOM, and a vulnerability scan that
+# "and what did we know about it?" - an SBOM, and a vulnerability scan that
 # was run recently enough to mean something.
 #
 # Apply ALONGSIDE kyverno-verify-images.yaml; this policy does not verify the
@@ -10,7 +10,7 @@
 # The scan-age condition is the part worth understanding: a vulnerability
 # attestation is a statement about a moment in time. Without an age bound, an
 # image signed and scanned two years ago satisfies "has a scan attestation"
-# forever — a check that reports success while telling you nothing.
+# forever - a check that reports success while telling you nothing.
 #
 # The attestor pins `githubWorkflowRepository`, the Fulcio extension recording
 # which repository asked for the signature. The subject alone would not: any

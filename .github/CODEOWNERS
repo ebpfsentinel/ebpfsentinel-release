@@ -3,7 +3,7 @@
 # change needs review from the release owners.
 #
 # Enforce with a branch protection rule on `main` that requires review from
-# Code Owners — CODEOWNERS alone only requests reviewers, it does not block.
+# Code Owners - CODEOWNERS alone only requests reviewers, it does not block.
 
 *                               @MaximeWewer
 

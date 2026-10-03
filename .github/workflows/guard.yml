@@ -1,7 +1,7 @@
 # Self-checks for the trust anchor.
 #
 # This repo's whole value is that its contents are trustworthy. These checks
-# fail the PR when an invariant drifts — an unpinned action, an allowlist that
+# fail the PR when an invariant drifts - an unpinned action, an allowlist that
 # no longer matches the verification side, a key file where none belongs.
 name: guard
 

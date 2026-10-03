@@ -1,4 +1,4 @@
-# Changelog — ebpfsentinel-enterprise
+# Changelog - ebpfsentinel-enterprise
 
 All notable changes to the enterprise layer are documented in this file.
 

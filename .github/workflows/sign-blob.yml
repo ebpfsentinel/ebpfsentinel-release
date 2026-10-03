@@ -13,7 +13,7 @@
 #   source:   the calling repository, recorded in the Fulcio certificate as
 #             the GitHub Workflow Repository extension (OID 1.3.6.1.4.1.57264.1.5)
 #
-# IMPORTANT — reusable-workflow identity: Sigstore records the *called*
+# IMPORTANT - reusable-workflow identity: Sigstore records the *called*
 # workflow ref as the certificate subject, so any repository on GitHub that
 # calls this public workflow would obtain a certificate carrying OUR identity.
 # Blobs are the sharper edge of that flaw: unlike images they are not scoped to

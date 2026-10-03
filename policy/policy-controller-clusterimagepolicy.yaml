@@ -11,7 +11,7 @@
 #      kubectl label namespace <ns> policy.sigstore.dev/include=true
 #   3. kubectl apply -f policy-controller-clusterimagepolicy.yaml
 #
-# Pick ONE admission enforcer — do not run this together with the Kyverno
+# Pick ONE admission enforcer - do not run this together with the Kyverno
 # policy, or images get verified twice.
 #
 # LIMITATION vs the Kyverno policy: ClusterImagePolicy matches only the

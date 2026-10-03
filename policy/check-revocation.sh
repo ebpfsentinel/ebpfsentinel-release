@@ -14,7 +14,7 @@
 # Replay protection: the highest serial seen is remembered in
 # ${XDG_STATE_HOME:-$HOME/.local/state}/ebpfsentinel/revocation-serial, and a
 # list with a lower serial is rejected. Override with SERIAL_STATE=/path, or
-# SERIAL_STATE=/dev/null to disable (not recommended — an attacker who can
+# SERIAL_STATE=/dev/null to disable (not recommended - an attacker who can
 # replace the file you fetch can then serve an older, shorter list).
 set -euo pipefail
 
@@ -47,7 +47,7 @@ if [ "$STATE" != /dev/null ]; then
   if [ -r "$STATE" ]; then
     seen="$(cat "$STATE")"
     if printf '%s' "$seen" | grep -qE '^[0-9]+$' && [ "$serial" -lt "$seen" ]; then
-      echo "ERROR: revocation list serial $serial is older than serial $seen already seen — possible replay" >&2
+      echo "ERROR: revocation list serial $serial is older than serial $seen already seen - possible replay" >&2
       exit 2
     fi
   fi

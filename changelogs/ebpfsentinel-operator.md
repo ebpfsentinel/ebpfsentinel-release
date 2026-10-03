@@ -1,4 +1,4 @@
-# Changelog — ebpfsentinel-operator
+# Changelog - ebpfsentinel-operator
 
 All notable changes to the Kubernetes operator are documented in this file.
 

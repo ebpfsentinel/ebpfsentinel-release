@@ -1,6 +1,6 @@
 # Signing public keys
 
-The public halves of the two signing pairs. Public by design — this directory
+The public halves of the two signing pairs. Public by design - this directory
 is how customers obtain the keys that verify what we hand them (and, at
 air-gapped sites, the only trust material they need).
 
@@ -48,7 +48,7 @@ wire: they ship in every enterprise release tarball, beside the
 `ebpfsentinel-license` binary that consumes them, and are attached to every
 `measurements/v*` release. Obtained once, out of band, and kept.
 
-The same two keys verify an offline bundle — the set of keys and revocations an
+The same two keys verify an offline bundle - the set of keys and revocations an
 estate with no route to us carries across an air gap:
 
 ```bash
@@ -64,7 +64,7 @@ minting entitlements.
 ## Populating and rotating
 
 **Not yet populated.** `issue-measurements.yml` and `build-enterprise.yml` fail
-closed until the real public keys are committed here — a release that shipped an
+closed until the real public keys are committed here - a release that shipped an
 envelope customers cannot check is worse than no release. Generate each pair
 offline and commit only the `.pub` files; the procedure and the rotation
 schedule are in

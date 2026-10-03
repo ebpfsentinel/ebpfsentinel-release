@@ -5,7 +5,7 @@
                                      [--workspace <name>]
 
 cargo-deny already fails a build that violates the config it was given. What it
-cannot notice is the config itself being weakened — an added `ignore = [...]`,
+cannot notice is the config itself being weakened - an added `ignore = [...]`,
 a flipped `unknown-git`, a license quietly appended. That is the drift this
 catches, and it is the drift an attacker with a merged PR would rely on.
 
@@ -51,7 +51,7 @@ def main() -> int:
     violations: list[str] = []
 
     # An exception without an expiry is a silent policy change, so `expires` is
-    # mandatory and enforced — a lapsed grant simply stops applying.
+    # mandatory and enforced - a lapsed grant simply stops applying.
     today = date.today()
     granted: dict[tuple[str, str, str], str] = {}
     for e in req.get("exceptions", []):
@@ -73,7 +73,7 @@ def main() -> int:
         return (ws, rule, value) in granted
 
     if req.get("graph_all_features") and cfg.get("graph", {}).get("all-features") is not True:
-        violations.append("[graph] all-features must be true — features hide advisories")
+        violations.append("[graph] all-features must be true - features hide advisories")
 
     advisories = cfg.get("advisories", {})
     ignored = advisories.get("ignore", [])
@@ -122,7 +122,7 @@ def main() -> int:
         return 1
 
     print(f"deny-policy: {args.deny} complies with the central floor ({ws})")
-    # Surface what was waived — a passing check that hides its exceptions is
+    # Surface what was waived - a passing check that hides its exceptions is
     # how a temporary grant becomes permanent.
     mine = {k: v for k, v in granted.items() if k[0] == ws}
     for (_, rule, value), expires in sorted(mine.items()):

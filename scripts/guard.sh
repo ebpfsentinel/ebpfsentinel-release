@@ -97,13 +97,13 @@ else
   ok "no PEM private keys in the tree"
 fi
 if ls policy/keys/*.key >/dev/null 2>&1; then
-  bad "policy/keys/ contains a .key file — only .pub belongs there"
+  bad "policy/keys/ contains a .key file - only .pub belongs there"
 else
   ok "policy/keys/ holds no private keys"
 fi
 
 # A published key is only useful if it is the key it claims to be. A truncated
-# file, or a pair committed under swapped filenames, verifies nothing — and it
+# file, or a pair committed under swapped filenames, verifies nothing - and it
 # would be found by a customer, at an air-gapped site, with nobody to ask. The
 # filename declares the algorithm, so decode and check the length against it.
 python3 - <<'PY'
@@ -182,7 +182,7 @@ done
 rm -rf scripts/__pycache__
 
 # The policy floor is only useful if it parses and still has a [require]
-# section — an emptied baseline would let every workspace through.
+# section - an emptied baseline would let every workspace through.
 if python3 -c "
 import sys, tomllib
 req = tomllib.load(open('configs/deny-baseline.toml','rb')).get('require', {})
@@ -254,7 +254,7 @@ PY
 # ---------------------------------------------------------------------------
 echo "[10] shell inside workflows parses"
 # A workflow can be flawless YAML and still hold a `run:` block that does not
-# parse. Those only break at run time — which for the signing workflows means
+# parse. Those only break at run time - which for the signing workflows means
 # in the middle of a release, after the artifacts are already published.
 python3 - <<'PY'
 import glob, subprocess, sys, yaml
@@ -278,6 +278,58 @@ if bad:
     sys.exit(1)
 print(f"  PASS: {total} run: blocks parse")
 PY
+[ $? -eq 0 ] || fail=1
+
+echo "[11] no typographic dash in tracked text"
+python3 <<'DASHPY' || fail=1
+import re, subprocess, sys
+
+# The four dashes a word processor or a paste from a web page introduces. The
+# rule across every repository here is a plain hyphen, in code, comments, docs,
+# workflow text and anything a reader ever sees. It is enforced rather than
+# asked for because it arrives one character at a time: this repository had
+# accumulated 224 of them across 36 files before anybody counted, and the
+# repositories that do have a check for it measure zero.
+#
+# The class is built from code points rather than written out, so this guard is
+# not its own first failure and nothing here rests on an escape surviving an
+# edit.
+DASHES = re.compile("[" + "".join(chr(c) for c in (0x2012, 0x2013, 0x2014, 0x2015)) + "]")
+
+# Byte formats a text rule cannot speak about, and in which these same bytes
+# turn up by chance.
+BINARY = (
+    ".png", ".jpg", ".jpeg", ".gif", ".ico", ".pdf", ".woff", ".woff2", ".ttf",
+    ".otf", ".mp4", ".webm", ".wav", ".zip", ".gz", ".tar", ".bin", ".onnx",
+)
+
+files = [
+    rel
+    for rel in subprocess.run(
+        ["git", "ls-files", "-z"], capture_output=True, text=True, check=True
+    ).stdout.split("\0")
+    if rel
+]
+
+bad = 0
+for rel in files:
+    if rel.lower().endswith(BINARY):
+        continue
+    try:
+        with open(rel, encoding="utf-8") as fh:
+            lines = fh.readlines()
+    except (OSError, UnicodeDecodeError):
+        continue
+    for n, line in enumerate(lines, 1):
+        if DASHES.search(line):
+            bad += 1
+            print(f"  FAIL: {rel}:{n} carries a typographic dash, use a plain hyphen")
+            print(f"        {line.strip()[:120]}")
+
+if bad:
+    sys.exit(1)
+print(f"  PASS: {len(files)} tracked files carry no typographic dash")
+DASHPY
 [ $? -eq 0 ] || fail=1
 
 echo

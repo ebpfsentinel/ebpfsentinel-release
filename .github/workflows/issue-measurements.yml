@@ -1,7 +1,7 @@
 # Issue a signed release-measurements manifest: an inventory of the known-good
 # sha256 of the published binaries, OCI digests of the published images and
 # crates.io checksums for a release. Runs AFTER the release `v<version>` in
-# THIS repository holds every component's assets — see docs/RELEASES.md.
+# THIS repository holds every component's assets - see docs/RELEASES.md.
 #
 # Releases are centralized here: the component repositories build and sign, and
 # upload into this repository's release. So the tarballs are measured from the
@@ -9,14 +9,14 @@
 # else can see, and the release notes come from `changelogs/` in this checkout
 # rather than from seven GitHub Releases that have to be stitched together.
 #
-# What gets measured comes from `releases/<version>.yaml` — the release
-# coordination manifest — not from a list typed into this workflow. Declaring
+# What gets measured comes from `releases/<version>.yaml` - the release
+# coordination manifest - not from a list typed into this workflow. Declaring
 # the set once means a component cannot be silently missing from the signed
 # inventory because nobody remembered it.
 #
 # It assembles `measurements.json`, DUAL-SIGNS it (Ed25519 + ML-DSA-65) with
 # this repo's signing keys, additionally cosign-keyless signs it (transparency
-# log), and attaches everything to a `measurements/v<version>` Release here —
+# log), and attaches everything to a `measurements/v<version>` Release here -
 # together with the aggregated changelog and the verified per-component SBOMs.
 #
 # Required secrets, held by the `release-signing` environment:
@@ -43,7 +43,7 @@ on:
         default: false
         type: boolean
       reissue-reason:
-        description: "Why the existing manifest is being replaced — recorded in the release notes"
+        description: "Why the existing manifest is being replaced - recorded in the release notes"
         required: false
         default: ""
         type: string
@@ -95,13 +95,13 @@ jobs:
         run: |
           MANIFEST="repo/releases/${REL}.yaml"
           if [ ! -f "$MANIFEST" ]; then
-            echo "::error::$MANIFEST not found — declare the release first (see releases/TEMPLATE.yaml)"
+            echo "::error::$MANIFEST not found - declare the release first (see releases/TEMPLATE.yaml)"
             exit 1
           fi
           python3 repo/scripts/check-release-manifest.py "$MANIFEST"
           status="$(python3 -c "import sys,yaml;print(yaml.safe_load(open(sys.argv[1]))['status'])" "$MANIFEST")"
           if [ "$status" = "yanked" ]; then
-            echo "::error::release $REL is marked yanked — measuring it would publish evidence for something withdrawn"
+            echo "::error::release $REL is marked yanked - measuring it would publish evidence for something withdrawn"
             exit 1
           fi
           python3 repo/scripts/check-release-manifest.py --images "$MANIFEST" > images.txt
@@ -220,7 +220,7 @@ jobs:
               exit 1
             fi
             if [ "$(printf '%s\n' "$matches" | grep -c .)" -gt 1 ]; then
-              echo "::error::${tarball} contains more than one file named ${binname} — cannot say which one we shipped"
+              echo "::error::${tarball} contains more than one file named ${binname} - cannot say which one we shipped"
               exit 1
             fi
             add "${binname}-${arch}" binary "$(sha256sum "$path" | awk '{print $1}')"
@@ -254,14 +254,14 @@ jobs:
                     -H 'User-Agent: ebpfsentinel-release (measurements)')"
             sum="$(printf '%s' "$meta" | jq -r '.version.checksum')"
             if [ -z "$sum" ] || [ "$sum" = "null" ]; then
-              echo "::error::crates.io has no checksum for ${crate} ${version} — is it published?"
+              echo "::error::crates.io has no checksum for ${crate} ${version} - is it published?"
               exit 1
             fi
             # A yanked version still answers with a checksum, but no dependent
             # can resolve it. Signing one would put a version in the inventory
             # that a customer's build refuses to use.
             if [ "$(printf '%s' "$meta" | jq -r '.version.yanked')" = "true" ]; then
-              echo "::error::${crate} ${version} is yanked on crates.io — publish a new version before releasing"
+              echo "::error::${crate} ${version} is yanked on crates.io - publish a new version before releasing"
               exit 1
             fi
             add "crates.io/${crate}" crate "$sum"
@@ -340,7 +340,7 @@ jobs:
           ML_KEY: ${{ secrets.RELEASE_SIGNING_KEY_MLDSA }}
         run: |
           if [ -z "$ED_KEY" ] || [ -z "$ML_KEY" ]; then
-            echo "::error::RELEASE_SIGNING_KEY_ED25519 / RELEASE_SIGNING_KEY_MLDSA are not set — see docs/KEY-MANAGEMENT.md"
+            echo "::error::RELEASE_SIGNING_KEY_ED25519 / RELEASE_SIGNING_KEY_MLDSA are not set - see docs/KEY-MANAGEMENT.md"
             exit 1
           fi
           printf '%s' "$ED_KEY" > ed25519.key
@@ -362,7 +362,7 @@ jobs:
           ed=repo/policy/keys/release-signing-ed25519.pub
           ml=repo/policy/keys/release-signing-mldsa.pub
           if [ ! -s "$ed" ] || [ ! -s "$ml" ]; then
-            echo "::error::policy/keys/ does not hold the release public keys — see docs/KEY-MANAGEMENT.md"
+            echo "::error::policy/keys/ does not hold the release public keys - see docs/KEY-MANAGEMENT.md"
             exit 1
           fi
           ./ebpfsentinel-license verify-manifest \
@@ -397,7 +397,7 @@ jobs:
           # it may run them.
           for key in license-signing.pub license-signing-pq.pub; do
             if [ ! -s "repo/policy/keys/${key}" ]; then
-              echo "::error::policy/keys/${key} is missing or empty — see docs/KEY-MANAGEMENT.md"
+              echo "::error::policy/keys/${key} is missing or empty - see docs/KEY-MANAGEMENT.md"
               exit 1
             fi
             cp "repo/policy/keys/${key}" out/
@@ -459,7 +459,7 @@ jobs:
         run: |
           TAG="measurements/v${REL}"
           if ! gh release view "$TAG" >/dev/null 2>&1; then
-            echo "no existing $TAG — publishing"
+            echo "no existing $TAG - publishing"
             exit 0
           fi
           if [ "$REISSUE" != "true" ]; then
@@ -467,7 +467,7 @@ jobs:
             exit 1
           fi
           if [ -z "$REASON" ]; then
-            echo "::error::reissue=true requires reissue-reason — it is recorded in the release notes as the audit trail."
+            echo "::error::reissue=true requires reissue-reason - it is recorded in the release notes as the audit trail."
             exit 1
           fi
           # The earlier manifest is evidence too, and a customer may hold digests

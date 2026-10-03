@@ -40,12 +40,12 @@ kubectl run rogue --image ghcr.io/ebpfsentinel/ebpfsentinel:tampered
 
 > Already running the **Sigstore Policy Controller** instead of Kyverno? Use
 > [`policy/policy-controller-clusterimagepolicy.yaml`](../policy/policy-controller-clusterimagepolicy.yaml)
-> — same guarantee, cosign-native. Run only one of the two enforcers.
+> - same guarantee, cosign-native. Run only one of the two enforcers.
 
 ### Attestations
 
-Every image carries an SPDX SBOM, a dated vulnerability scan, and — where we
-have something to say about a CVE — OpenVEX statements. Read them:
+Every image carries an SPDX SBOM, a dated vulnerability scan, and - where we
+have something to say about a CVE - OpenVEX statements. Read them:
 
 ```bash
 REF=ghcr.io/ebpfsentinel/ebpfsentinel@sha256:<digest>
@@ -61,8 +61,8 @@ for t in spdxjson vuln openvex; do
 done
 ```
 
-To require them at admission — including that the scan is recent, not merely
-present — apply
+To require them at admission - including that the scan is recent, not merely
+present - apply
 [`policy/kyverno-verify-attestations.yaml`](../policy/kyverno-verify-attestations.yaml)
 alongside the signature policy.
 
@@ -78,12 +78,12 @@ no new scan, so its images fall out of admission within 30 days of the yank.
 ## 2. GitOps: deploy by digest
 
 Public packages need **no pull secret**. Pin images by digest so what you
-verified is exactly what runs — Kyverno's `mutateDigest` enforces this at
+verified is exactly what runs - Kyverno's `mutateDigest` enforces this at
 admission, and your GitOps tool should pin at the source too:
 
-- **Argo CD** — reference `…@sha256:<digest>` in your Application manifests
+- **Argo CD** - reference `…@sha256:<digest>` in your Application manifests
   (or use the Argo Image Updater with `digest` update strategy).
-- **Flux** — `ImagePolicy` with `digestReflectionPolicy: Always`, or pin the
+- **Flux** - `ImagePolicy` with `digestReflectionPolicy: Always`, or pin the
   digest directly in the `HelmRelease`/`Kustomization`.
 
 Charts are OCI artifacts signed the same way; verify the chart digest with
@@ -93,7 +93,7 @@ Charts are OCI artifacts signed the same way; verify the chart digest with
 
 Everything else is public + identical for all customers. Deliver the license
 as a Kubernetes Secret via **External Secrets Operator** (kept in your vault)
-or **SOPS** (encrypted in Git) — see `policy/license-external-secret.yaml`.
+or **SOPS** (encrypted in Git) - see `policy/license-external-secret.yaml`.
 The agent reads it at `enterprise.license_path` / `--license`.
 
 ## 4. Bare metal / no Kubernetes
@@ -105,7 +105,7 @@ raw cosign / `gh attestation verify` commands.
 ## 5. Revocation
 
 A signature never expires and never changes its mind. When an artifact is
-withdrawn — a critical defect, a compromised build — the signature on it stays
+withdrawn - a critical defect, a compromised build - the signature on it stays
 valid, so signature checking alone will keep admitting it. Poll the signed
 list and enforce it:
 
@@ -142,7 +142,7 @@ Keyless verification normally calls the public Sigstore transparency log
 
 - **Rely on the key-based layer.** The signed measurements manifest is
   dual-signed (Ed25519 + ML-DSA-65) with our release signing keys and verifies
-  **fully offline** — no Fulcio/Rekor at all. Both public keys ship as assets
+  **fully offline** - no Fulcio/Rekor at all. Both public keys ship as assets
   of the same `measurements/v*` release, so nothing else needs downloading:
 
   ```bash
@@ -155,7 +155,7 @@ Keyless verification normally calls the public Sigstore transparency log
   Both signatures must verify. That is the natural trust path for enterprise
   air-gap deployments; the keyless image chain is the connected-site path.
 
-  Licenses are signed with a *different* pair — see
+  Licenses are signed with a *different* pair - see
   [`KEY-MANAGEMENT.md`](KEY-MANAGEMENT.md). Its public halves are attached to
   the same release and also ship inside every enterprise tarball, so the same
   medium that crossed the gap carries what checks a licence:

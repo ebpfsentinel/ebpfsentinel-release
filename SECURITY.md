@@ -7,7 +7,7 @@ every artifact we ship. Treat findings against it as high severity by default.
 
 ## Reporting a vulnerability
 
-Report privately — do not open a public issue.
+Report privately - do not open a public issue.
 
 - GitHub **Security Advisories** → *Report a vulnerability* on this repository
   (preferred; gives us a private fork to develop the fix in).
@@ -15,7 +15,7 @@ Report privately — do not open a public issue.
 
 Include: what you found, how to reproduce it, the affected repository/tag or
 image digest, and the impact you believe it has. If you have a proof of
-concept, send it — it shortens triage considerably.
+concept, send it - it shortens triage considerably.
 
 We acknowledge within **3 business days** and give an initial assessment
 within **10 business days**. We will tell you what we decided and why, even
@@ -33,7 +33,7 @@ advisory unless you prefer otherwise.
 In scope, and what we consider a valid finding:
 
 - Any way to obtain a signature under our release identity without a build in
-  an authorized repository — the caller allowlist in the signing workflows, or
+  an authorized repository - the caller allowlist in the signing workflows, or
   a bypass of `githubWorkflowRepository` pinning at verification time.
 - Any way to make `policy/verify.sh`, the Kyverno policy, the Policy
   Controller policy, or `policy/check-revocation.sh` accept a tampered,
@@ -45,7 +45,7 @@ In scope, and what we consider a valid finding:
 
 Out of scope:
 
-- Vulnerabilities in the product itself — report those against the product
+- Vulnerabilities in the product itself - report those against the product
   repository, or here if you cannot determine which one.
 - Findings that require an attacker to already hold repository admin, an
   organization owner account, or our signing secrets.
@@ -60,7 +60,7 @@ Before reporting that an artifact looks wrong, confirm it is one of ours:
 ./policy/verify.sh image ghcr.io/ebpfsentinel/<component>@sha256:<digest>
 ```
 
-An artifact that fails verification is not an eBPFsentinel artifact — but we
+An artifact that fails verification is not an eBPFsentinel artifact - but we
 still want to hear about it, because it means someone is distributing one.
 
 ## Hardening of this repository

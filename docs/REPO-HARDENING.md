@@ -2,7 +2,7 @@
 
 Every guarantee this repo makes reduces to one assumption: **what is on the
 `v*` tags is what we put there**. Nothing in Sigstore, Kyverno or the dual
-signatures protects against an attacker who can push to this repository — they
+signatures protects against an attacker who can push to this repository - they
 would simply sign their artifact with our identity, legitimately.
 
 So the controls below are not hygiene. They are the actual root of trust, and
@@ -36,7 +36,7 @@ logged.
 
 ## 2. Tag protection on `v*`
 
-Consumers pin `…/sign-image.yml@v1`. That tag is a **mutable pointer** —
+Consumers pin `…/sign-image.yml@v1`. That tag is a **mutable pointer** -
 whoever can move it controls what runs inside every product repo's signing job.
 
 Create a **ruleset** targeting tags matching `v*`:
@@ -52,7 +52,7 @@ gh api repos/ebpfsentinel/ebpfsentinel-release/rulesets --jq '.[] | {name, targe
 
 The `@v1` design is a trade-off we accept: consumers get security fixes without
 a PR in eight repos, at the cost of a pointer we must guard. Anyone wanting the
-stricter posture can pin `@<sha>` in their own repo instead — the caller
+stricter posture can pin `@<sha>` in their own repo instead - the caller
 allowlist still applies, only the published Kyverno identity regexp expects a
 tag, so a SHA-pinned caller must adjust their own verification.
 
@@ -118,7 +118,7 @@ measurements, and every signature is in Rekor whatever happens to a release.
 | Self-hosted runners | **none** | a persistent runner retaining secrets between jobs |
 
 Every workflow here also declares `permissions: {}` at the top level and grants
-the minimum per job. Keep it that way — it is the difference between a bug in
+the minimum per job. Keep it that way - it is the difference between a bug in
 one job and a repo-wide write.
 
 ## 5. Secrets
@@ -135,7 +135,7 @@ one job and a repo-wide write.
   on `ebpfsentinel-enterprise`, and the wider of the two already sat ungated at
   repository level, so the narrower one behind the environment gate was
   protecting nothing that was not already reachable.
-- License signing keys are **never** stored here or in any CI system — see
+- License signing keys are **never** stored here or in any CI system - see
   [`KEY-MANAGEMENT.md`](KEY-MANAGEMENT.md).
 - Enable **secret scanning** and **push protection** on the repo.
 
@@ -157,7 +157,7 @@ gh api repos/ebpfsentinel/ebpfsentinel-release --jq '.security_and_analysis'
 
 [`dependabot.yml`](../.github/dependabot.yml) opens weekly `github-actions`
 PRs. SHA pinning without it means pinning to a version that stops receiving
-security fixes — the pin is only safe because something proposes the moves.
+security fixes - the pin is only safe because something proposes the moves.
 Dependabot PRs go through the same review as any other; `guard.sh` re-checks
 that the new pin is a SHA.
 
@@ -184,19 +184,19 @@ cosign verify --certificate-oidc-issuer https://token.actions.githubusercontent.
 
 The last one is the property worth internalizing: the transparency log means a
 signature minted with a stolen identity **cannot be hidden**. Detection is
-possible even when prevention failed — but only if someone looks.
+possible even when prevention failed - but only if someone looks.
 
 ## 9. If the identity is compromised
 
-1. Revoke the affected digests — [`REVOCATION.md`](REVOCATION.md). This is the
+1. Revoke the affected digests - [`REVOCATION.md`](REVOCATION.md). This is the
    only control that stops artifacts already in the field.
-2. Rotate the release signing keys — [`KEY-MANAGEMENT.md`](KEY-MANAGEMENT.md).
+2. Rotate the release signing keys - [`KEY-MANAGEMENT.md`](KEY-MANAGEMENT.md).
 3. Delete and recreate `v1` from a reviewed commit; audit every workflow file
    in the range.
 4. Search Rekor for signatures under our identity that do not correspond to a
    release we made, and revoke each one.
 5. Publish an advisory. Customers pinning digests are unaffected by anything
-   published after their pin — say so explicitly, it is the question they
+   published after their pin - say so explicitly, it is the question they
    will ask.
 
 ## 10. If Sigstore is down

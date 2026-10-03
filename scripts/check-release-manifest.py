@@ -10,7 +10,7 @@
 Five components ship as one product. Which versions belong together is a
 fact that otherwise lives only in someone's head or in a chat message, and the
 first time that matters is when a customer asks "which operator works with the
-agent I have?" — or when a measurements manifest quietly omits a component
+agent I have?" - or when a measurements manifest quietly omits a component
 nobody remembered to add.
 
 So the release is declared once, here, and the signing workflows read it. That
@@ -88,7 +88,7 @@ def changelog_errors(doc: dict, changelog_dir: Path) -> list[str]:
         heading = re.compile(rf"^## \[{re.escape(str(version))}\]", re.MULTILINE)
         if not heading.search(path.read_text()):
             errs.append(
-                f"component {name}: {path} has no '## [{version}]' section — "
+                f"component {name}: {path} has no '## [{version}]' section - "
                 "rename [Unreleased] when declaring the release"
             )
     return errs
@@ -146,7 +146,7 @@ def validate(doc: dict, path: Path) -> list[str]:
         if not c.get("version"):
             errs.append(f"{where}: missing version")
         if not c.get("license"):
-            errs.append(f"{where}: missing license — it is part of what we ship")
+            errs.append(f"{where}: missing license - it is part of what we ship")
 
         ref = c.get("ref")
         if not ref:
@@ -169,7 +169,7 @@ def validate(doc: dict, path: Path) -> list[str]:
             errs.append(f"{where}: binaries must be a list")
             binaries = []
 
-        # A component can also ship as crates.io packages and nothing else —
+        # A component can also ship as crates.io packages and nothing else -
         # measured from the registry's own checksum for the published version.
         crates = c.get("crates", [])
         if not isinstance(crates, list):
@@ -181,7 +181,7 @@ def validate(doc: dict, path: Path) -> list[str]:
 
         if not images_of(c) and not binaries and not crates:
             errs.append(
-                f"{where}: declares neither an image, binaries nor crates — nothing to measure"
+                f"{where}: declares neither an image, binaries nor crates - nothing to measure"
             )
 
         for b in binaries:

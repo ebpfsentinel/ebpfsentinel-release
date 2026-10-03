@@ -9,7 +9,7 @@ rules that matter are enforced here rather than trusted to review:
 
   - `not_affected` requires a machine-readable `justification` from the
     OpenVEX vocabulary; prose alone is not actionable.
-  - `affected` requires an `action_statement` — telling someone they are
+  - `affected` requires an `action_statement` - telling someone they are
     affected without telling them what to do is an unfinished thought.
   - every statement names at least one vulnerability and one product.
 
@@ -24,7 +24,7 @@ from pathlib import Path
 
 CONTEXT = "https://openvex.dev/ns"
 STATUSES = {"not_affected", "affected", "fixed", "under_investigation"}
-# https://github.com/openvex/spec — the closed vocabulary is the point: a
+# https://github.com/openvex/spec - the closed vocabulary is the point: a
 # free-text reason cannot be reasoned about by a tool.
 JUSTIFICATIONS = {
     "component_not_present",

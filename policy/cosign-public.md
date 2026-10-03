@@ -1,7 +1,7 @@
 # Verifying eBPFsentinel artifacts
 
 Every eBPFsentinel container image and release binary is signed with
-[cosign](https://docs.sigstore.dev/) **keyless** — there is no public key
+[cosign](https://docs.sigstore.dev/) **keyless** - there is no public key
 to distribute. Trust is anchored on the identity of the release signing
 workflow plus the Sigstore transparency log (Rekor).
 
@@ -19,13 +19,13 @@ exists for the new digest under this identity, so verification fails.
 
 **Always check the source repository as well as the identity.** Our signing
 workflows are *reusable* workflows, so Sigstore records the called workflow as
-the certificate subject — the subject alone does not say which repository
+the certificate subject - the subject alone does not say which repository
 requested the signature. `verify.sh` pins both; if you write your own
 verification, pass `--certificate-github-workflow-repository`.
 
 ## Kubernetes (recommended)
 
-Install the Kyverno policy — the cluster then refuses any unsigned or
+Install the Kyverno policy - the cluster then refuses any unsigned or
 tampered eBPFsentinel image at admission, and pins running pods to the
 verified digest:
 
@@ -52,7 +52,7 @@ Use the helper:
 sha256sum -c --ignore-missing ebpfsentinel-SHA256SUMS
 ```
 
-**Air-gapped?** Set `OFFLINE=1` to verify without reaching Rekor — images
+**Air-gapped?** Set `OFFLINE=1` to verify without reaching Rekor - images
 verify from the inclusion proof embedded in the signature, blobs from the
 `*.bundle` shipped alongside `*.sig`/`*.crt`:
 
@@ -73,7 +73,7 @@ cosign verify \
 `--certificate-github-workflow-repository` is the repository that asked for the
 signature, and it is `ebpfsentinel/ebpfsentinel-release` for everything: one
 release run builds and signs every component, whichever repository the source
-came from. `verify.sh` does this for you — with `SOURCE_REPO=<owner>/<repo>`
+came from. `verify.sh` does this for you - with `SOURCE_REPO=<owner>/<repo>`
 to pin one exact origin, or unset for the same default.
 
 GitHub build-provenance attestations (on release binaries) can also be

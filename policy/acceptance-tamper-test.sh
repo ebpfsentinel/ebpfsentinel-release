@@ -2,13 +2,13 @@
 # Acceptance: prove a MODIFIED artifact is inert at every layer.
 #
 # The acceptance criterion: a tampered artifact must be rejected by
-#   (a) cosign signature verification    — a bad digest has no signature
-#   (c) signed measurements manifest      — a tampered manifest fails verify
-#   (d) caller pinning                    — the certificate is bound to the
-#                                           repository that requested it, so a
-#                                           foreign source repo must not verify
+#   (a) cosign signature verification - a bad digest has no signature
+#   (c) signed measurements manifest    - a tampered manifest fails verify
+#   (d) caller pinning                  - the certificate is bound to the
+#                                         repository that requested it, so a
+#                                         foreign source repo must not verify
 # and, when a cluster is reachable,
-#   (b) Kubernetes admission             — Kyverno denies the unsigned digest
+#   (b) Kubernetes admission - Kyverno denies the unsigned digest
 #
 # Every check here PASSES when tamper is correctly REJECTED. A tamper that
 # slips through is an acceptance FAILURE and exits non-zero.
@@ -66,7 +66,7 @@ if [ -n "$IMAGE" ]; then
   last="${hex: -1}"; case "$last" in f) new=e ;; *) new=f ;; esac
   tampered="${base}@sha256:${hex%?}${new}"
   if cosign_verify_image "$tampered" "$SOURCE_REPO"; then
-    bad "tampered digest verified — signature layer is NOT enforcing"
+    bad "tampered digest verified - signature layer is NOT enforcing"
   else
     ok "tampered digest correctly rejected (no signature under our identity)"
   fi
@@ -76,13 +76,13 @@ if [ -n "$IMAGE" ]; then
   # reusable-workflow-wide and anyone calling it could impersonate us.
   echo "[d] caller pinning"
   if cosign_verify_image "$IMAGE" "${ORG}/ebpfsentinel-acceptance-not-a-repo"; then
-    bad "foreign source repository verified — caller pinning is NOT enforcing"
+    bad "foreign source repository verified - caller pinning is NOT enforcing"
   else
     ok "foreign source repository correctly rejected"
   fi
 else
-  echo "[a] skipped — no --image given"
-  echo "[d] skipped — no --image given"
+  echo "[a] skipped - no --image given"
+  echo "[d] skipped - no --image given"
 fi
 
 # ── (c) signed measurements manifest layer ────────────────────────────────
@@ -106,13 +106,13 @@ if [ -n "$MANIFEST" ]; then
       --certificate-github-workflow-repository "$MANIFEST_REPO" \
       --signature "${MANIFEST}.sig" --certificate "${MANIFEST}.crt" \
       "$tmp" >/dev/null 2>&1; then
-    bad "tampered manifest verified — manifest layer is NOT enforcing"
+    bad "tampered manifest verified - manifest layer is NOT enforcing"
   else
     ok "tampered manifest correctly rejected"
   fi
   rm -f "$tmp"
 else
-  echo "[c] skipped — no --manifest given"
+  echo "[c] skipped - no --manifest given"
 fi
 
 # ── (b) Kubernetes admission layer (needs a cluster + Kyverno + policy) ────
@@ -120,14 +120,14 @@ if [ -n "$ROGUE" ] && command -v kubectl >/dev/null 2>&1 && kubectl version >/de
   echo "[b] Kyverno admission layer"
   ns="acceptance-$$"; kubectl create namespace "$ns" >/dev/null 2>&1 || true
   if kubectl -n "$ns" run rogue --image "$ROGUE" --restart=Never >/dev/null 2>&1; then
-    bad "unsigned image was admitted — Kyverno policy not enforcing"
+    bad "unsigned image was admitted - Kyverno policy not enforcing"
     kubectl -n "$ns" delete pod rogue >/dev/null 2>&1 || true
   else
     ok "unsigned image correctly denied at admission"
   fi
   kubectl delete namespace "$ns" >/dev/null 2>&1 || true
 else
-  echo "[b] skipped — no --rogue image or no reachable cluster"
+  echo "[b] skipped - no --rogue image or no reachable cluster"
 fi
 
 echo

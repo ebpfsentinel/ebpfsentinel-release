@@ -5,7 +5,7 @@
 # ML-DSA-65) list of withdrawn digests, published at a stable pointer that
 # consumers poll.
 #
-# `revocations/current` is deliberately mutable — a revocation list that could
+# `revocations/current` is deliberately mutable - a revocation list that could
 # not be updated would be useless. Immutability lives in the per-serial tags
 # and in the monotonic `serial`, which lets a consumer detect a replayed older
 # list. See docs/REVOCATION.md.
@@ -145,7 +145,7 @@ jobs:
           ML_KEY: ${{ secrets.RELEASE_SIGNING_KEY_MLDSA }}
         run: |
           if [ -z "$ED_KEY" ] || [ -z "$ML_KEY" ]; then
-            echo "::error::release signing secrets are not set — see docs/KEY-MANAGEMENT.md"
+            echo "::error::release signing secrets are not set - see docs/KEY-MANAGEMENT.md"
             exit 1
           fi
           printf '%s' "$ED_KEY" > ed25519.key
@@ -219,7 +219,7 @@ jobs:
         run: |
           TAG="revocations/v${SERIAL}"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "::error::$TAG already exists — serials are append-only"
+            echo "::error::$TAG already exists - serials are append-only"
             exit 1
           fi
           gh release create "$TAG" pub/* \

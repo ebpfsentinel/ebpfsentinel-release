@@ -1,6 +1,6 @@
 # Dependency-policy FLOOR for every eBPFsentinel Rust workspace.
 #
-# This is not a drop-in cargo-deny config — each workspace keeps its own
+# This is not a drop-in cargo-deny config - each workspace keeps its own
 # deny.toml, because their license sets legitimately differ (AGPL for OSS,
 # LicenseRef-Proprietary for Enterprise and the dashboard, Apache-2.0 for
 # anomstream). What this file defines is the part that must NOT differ.
@@ -30,7 +30,7 @@ bans_wildcards = "deny"
 
 # The union of licenses any workspace may allow. A workspace lists a subset;
 # anything outside this set needs review here first. Copyleft beyond AGPL and
-# anything license-unknown are excluded deliberately — we redistribute these
+# anything license-unknown are excluded deliberately - we redistribute these
 # binaries to customers.
 licenses_allow_superset = [
     "MIT",

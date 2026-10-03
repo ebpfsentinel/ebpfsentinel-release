@@ -12,7 +12,7 @@ vex/ebpfsentinel-dashboard.openvex.json
 `sign-image.yml` picks up the file matching the image being signed, rewrites
 every statement's `products` to the exact digest, and attaches it as an
 `openvex` attestation. A component with no file simply gets no VEX
-attestation — silence is the correct default.
+attestation - silence is the correct default.
 
 ## Why these live here and not in the product repos
 
@@ -23,7 +23,7 @@ reviewed by the release owners, and it passes `scripts/check-vex.py`.
 
 ## Authoring
 
-`products` is written as a placeholder — the workflow overwrites it with the
+`products` is written as a placeholder - the workflow overwrites it with the
 signed digest, so do not hand-maintain it:
 
 ```json
@@ -41,14 +41,14 @@ Rules the validator enforces, and the reasoning:
 
 - **`not_affected` needs a `justification` from the OpenVEX vocabulary.** A
   scanner-facing tool has to be able to act on it; prose cannot be reasoned
-  about automatically. Add `impact_statement` as well — that is what a human
+  about automatically. Add `impact_statement` as well - that is what a human
   auditor reads.
 - **`affected` needs an `action_statement`.** Telling a customer they are
   affected without telling them what to do leaves them worse off than a plain
   scanner report would have.
 
 Write `under_investigation` when that is the truth. It is a real status, and
-an honest one beats a `not_affected` you have not verified — that one is a
+an honest one beats a `not_affected` you have not verified - that one is a
 statement you will have to defend.
 
 ## Verifying as a consumer

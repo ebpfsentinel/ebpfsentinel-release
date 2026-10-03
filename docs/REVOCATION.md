@@ -1,6 +1,6 @@
 # Revocation
 
-A signature says "we published this". It never stops saying that — not when
+A signature says "we published this". It never stops saying that - not when
 the artifact turns out to ship a critical CVE, not when a build machine is
 found compromised. Revocation is the separate channel that says "we published
 this **and you must stop running it**".
@@ -33,7 +33,7 @@ trying to reproduce a past deployment.
 ```
 
 `kind` is `image` or `binary`. `digest` is the OCI index digest for images and
-the sha256 of the executable for binaries — the same values the measurements
+the sha256 of the executable for binaries - the same values the measurements
 manifest records, so a revocation can always be matched against what a site
 actually installed.
 
@@ -46,7 +46,7 @@ verifier that has already seen serial 7 rejects a list claiming serial 6. Cache
 the highest serial you have seen; treat a lower one as an attack, not as a
 stale cache.
 
-This is also why the list is published even when it is empty — a site with no
+This is also why the list is published even when it is empty - a site with no
 list at all cannot tell "nothing is revoked" from "the fetch was blocked".
 
 ## Publishing
@@ -64,7 +64,7 @@ list at all cannot tell "nothing is revoked" from "the fetch was blocked".
 5. replaces the `revocations/current` release, and also publishes an immutable
    `revocations/v<serial>` release so the history stays auditable.
 
-`revocations/current` is deliberately mutable — a revocation list that could
+`revocations/current` is deliberately mutable - a revocation list that could
 not be updated would be useless. The immutability guarantee lives in the
 per-serial tags and in the monotonic serial, not in the pointer.
 
@@ -88,7 +88,7 @@ ebpfsentinel-license verify-manifest \
 into your install path so a revoked digest fails the install rather than
 producing a warning nobody reads.
 
-**Kubernetes.** Signature verification cannot express revocation — a revoked
+**Kubernetes.** Signature verification cannot express revocation - a revoked
 image still carries a valid signature. Generate a companion deny policy and
 apply it alongside `kyverno-verify-images.yaml`:
 
@@ -97,7 +97,7 @@ apply it alongside `kyverno-verify-images.yaml`:
 kubectl apply -f kyverno-deny-revoked.yaml
 ```
 
-Regenerate it whenever the serial advances — a GitOps job on a schedule is the
+Regenerate it whenever the serial advances - a GitOps job on a schedule is the
 right home for this. The generated policy is a static list of digests, so it
 keeps working in air-gapped clusters with no callback to us.
 
@@ -110,7 +110,7 @@ keeps working in air-gapped clusters with no callback to us.
 4. Publish a fixed release and issue its measurements manifest, so sites have
    somewhere to go. Revoking without a replacement strands them.
 5. If the cause is key or CI compromise rather than a code defect, rotate the
-   signing keys too — see [`KEY-MANAGEMENT.md`](KEY-MANAGEMENT.md) — and revoke
+   signing keys too - see [`KEY-MANAGEMENT.md`](KEY-MANAGEMENT.md) - and revoke
    every artifact signed after the suspected compromise, not just the one that
    was found.
 

@@ -1,4 +1,4 @@
-# Acceptance — prove a modified artifact is inert at every layer.
+# Acceptance - prove a modified artifact is inert at every layer.
 #
 # Runs the tamper test (policy/acceptance-tamper-test.sh) for the cosign
 # signature layer (a) and the signed-measurements layer (c), and a
@@ -118,7 +118,7 @@ jobs:
           if kubectl run rogue \
               --image ghcr.io/ebpfsentinel/ebpfsentinel-acceptance-rogue:tampered \
               --restart=Never; then
-            echo "::error::unsigned image was ADMITTED — policy not enforcing"
+            echo "::error::unsigned image was ADMITTED - policy not enforcing"
             kubectl delete pod rogue --ignore-not-found
             exit 1
           fi
@@ -126,7 +126,7 @@ jobs:
 
       # The negative test alone is a weak guarantee: a policy that denies
       # everything passes it. This is the test that says the policies we publish
-      # actually let a genuine release run — including that every attestation
+      # actually let a genuine release run - including that every attestation
       # they require is present and shaped the way the conditions expect.
       #
       # Admission and image pull are different things: Kyverno rejects at
@@ -138,7 +138,7 @@ jobs:
           IMAGE: ${{ inputs.image }}
         run: |
           if ! kubectl run genuine --image "$IMAGE" --restart=Never; then
-            echo "::error::a genuine signed image was DENIED — the published policies reject our own release"
+            echo "::error::a genuine signed image was DENIED - the published policies reject our own release"
             kubectl delete pod genuine --ignore-not-found
             exit 1
           fi

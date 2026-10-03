@@ -3,8 +3,8 @@
 # signing identity.
 #
 # Two things are checked, not one:
-#   1. the certificate SUBJECT  — our signing workflow on a v* tag;
-#   2. the certificate SOURCE REPOSITORY — the repo that called that workflow.
+#   1. the certificate SUBJECT - our signing workflow on a v* tag;
+#   2. the certificate SOURCE REPOSITORY - the repo that called that workflow.
 #
 # (2) matters because Sigstore records the *called* reusable workflow as the
 # subject, so the subject alone does not prove who asked for the signature.
@@ -52,7 +52,7 @@ EOF
   exit 2
 }
 
-# A valid signature does not mean an artifact is still fit to run — that is
+# A valid signature does not mean an artifact is still fit to run - that is
 # what the revocation list is for. Checked only when the caller supplies one,
 # because silently skipping it would be worse than not offering it.
 check_revoked() {
@@ -110,7 +110,7 @@ case "$cmd" in
       try_repos verify-blob --signature "$2" --certificate "$3" "$1"
     fi
     if [ "$cmd" = "sums" ]; then
-      echo "SHA256SUMS signature OK — now check the files:"
+      echo "SHA256SUMS signature OK - now check the files:"
       echo "  sha256sum -c $1"
     fi
     ;;

@@ -1,4 +1,4 @@
-# Changelog — ebpfsentinel-dashboard
+# Changelog - ebpfsentinel-dashboard
 
 All notable changes to the web console and control plane are documented in this file.
 

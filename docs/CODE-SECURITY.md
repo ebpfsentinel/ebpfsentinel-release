@@ -4,7 +4,7 @@ Signing proves an artifact is the one we built. It says nothing about whether
 what we built was safe to ship. That is this lane's job, and it is centralized
 here for one reason: **a repository must not be able to lower its own bar.**
 
-Every product repo could run `cargo audit` itself — they already do. What they
+Every product repo could run `cargo audit` itself - they already do. What they
 could also do is add an `ignore = ["RUSTSEC-…"]`, flip `unknown-git` to
 `allow`, or delete the job, in a PR reviewed by whoever happened to be around.
 With the policy here, each of those changes is a PR against the trust anchor,
@@ -31,7 +31,7 @@ Turn it on per repo when you want the Security-tab findings.
 
 Scorecard is off because it only works on public repositories, and
 `scorecard-publish` is *separately* off because publishing makes the repo's
-posture readable by anyone — a reasonable default for an OSS project, not one
+posture readable by anyone - a reasonable default for an OSS project, not one
 to enable silently on a repo that just became public.
 
 ## Adopting it
@@ -70,7 +70,7 @@ merge is not clean forever, and nothing about a quiet repository makes it safe.
 of a `deny.toml` that may not differ between workspaces, and
 [`scripts/check-deny-policy.py`](../scripts/check-deny-policy.py) enforces it:
 
-- `[graph] all-features = true` — an advisory reachable only through an
+- `[graph] all-features = true` - an advisory reachable only through an
   optional feature is still an advisory.
 - `[advisories] ignore` empty, unless granted below.
 - `[sources] unknown-registry`/`unknown-git` = `deny`, `allow-git` empty.
@@ -90,7 +90,7 @@ Run it locally exactly as CI does:
 ## Exceptions
 
 An advisory that genuinely does not apply, or an unmaintained transitive crate
-waiting on an upstream bump, is granted in `[[require.exceptions]]` — in *this*
+waiting on an upstream bump, is granted in `[[require.exceptions]]` - in *this*
 repo, with a `reason` and a mandatory `expires`:
 
 ```toml
@@ -102,7 +102,7 @@ reason = "backoff unmaintained, transitive via the kube 0.98 ecosystem; resolves
 expires = "2027-04-30"
 ```
 
-Two properties are deliberate. **Expiry is enforced** — past the date the grant
+Two properties are deliberate. **Expiry is enforced** - past the date the grant
 stops applying and the workspace fails again, so a temporary waiver cannot
 become permanent by inattention. And **granted exceptions are printed on every
 successful run**, because a green check that hides what it waived is how an
