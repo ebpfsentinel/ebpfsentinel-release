@@ -10,8 +10,8 @@ on:
   workflow_call:
     secrets:
       SIBLING_READ_TOKEN:
-        description: "Read token for the private component repositories (optional for public ones)"
-        required: false
+        description: "Read token for the private operator repository"
+        required: true
     inputs:
       version:
         description: "Version to stamp and publish (YYYY.M.X)"
@@ -68,12 +68,24 @@ jobs:
             exit 1
           fi
 
+      # The operator's repository is private, so GITHUB_TOKEN cannot read it
+      # from here, and a checkout missing its token reports only `Input required
+      # and not supplied: token`, naming neither the secret nor the repository.
+      - name: Refuse to run without the token the operator checkout needs
+        env:
+          SIBLING_READ_TOKEN: ${{ secrets.SIBLING_READ_TOKEN }}
+        run: |
+          if [[ -z "${SIBLING_READ_TOKEN}" ]]; then
+            echo "::error::SIBLING_READ_TOKEN is not configured, so ebpfsentinel/ebpfsentinel-operator cannot be checked out and no operator image or chart can be built. Add a repository secret holding a token with read access to the contents of ebpfsentinel/ebpfsentinel-operator. It is the one token every repository in this project uses to read a private sibling, so grant it read on all of them at once rather than on this one."
+            exit 1
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ebpfsentinel/ebpfsentinel-operator
           ref: ${{ inputs.ref }}
           path: src
-          token: ${{ secrets.SIBLING_READ_TOKEN || github.token }}
+          token: ${{ secrets.SIBLING_READ_TOKEN }}
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
@@ -145,12 +157,24 @@ jobs:
       image: ${{ steps.push.outputs.image }}
       digest: ${{ steps.push.outputs.digest }}
     steps:
+      # The operator's repository is private, so GITHUB_TOKEN cannot read it
+      # from here, and a checkout missing its token reports only `Input required
+      # and not supplied: token`, naming neither the secret nor the repository.
+      - name: Refuse to run without the token the operator checkout needs
+        env:
+          SIBLING_READ_TOKEN: ${{ secrets.SIBLING_READ_TOKEN }}
+        run: |
+          if [[ -z "${SIBLING_READ_TOKEN}" ]]; then
+            echo "::error::SIBLING_READ_TOKEN is not configured, so ebpfsentinel/ebpfsentinel-operator cannot be checked out and no operator image or chart can be built. Add a repository secret holding a token with read access to the contents of ebpfsentinel/ebpfsentinel-operator. It is the one token every repository in this project uses to read a private sibling, so grant it read on all of them at once rather than on this one."
+            exit 1
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ebpfsentinel/ebpfsentinel-operator
           ref: ${{ inputs.ref }}
           path: src
-          token: ${{ secrets.SIBLING_READ_TOKEN || github.token }}
+          token: ${{ secrets.SIBLING_READ_TOKEN }}
 
       - name: Stamp version in Chart.yaml
         working-directory: src
