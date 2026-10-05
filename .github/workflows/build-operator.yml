@@ -1,4 +1,5 @@
-# Builds, pushes and signs the Kubernetes operator from THIS repository.
+# Builds, pushes and signs the Kubernetes operator and its Helm chart from
+# THIS repository.
 #
 # Two images out of one source tree: the same operator with and without
 # `--features enterprise`. Both are published, because which one a cluster runs
@@ -33,6 +34,8 @@ env:
   COMPONENT_REPO: ebpfsentinel/ebpfsentinel-operator
   IMAGE: ghcr.io/ebpfsentinel/ebpfsentinel-operator
   ENTERPRISE_IMAGE: ghcr.io/ebpfsentinel/ebpfsentinel-operator-enterprise
+  CHART_PATH: charts/ebpfsentinel-operator
+  CHART_IMAGE: ghcr.io/ebpfsentinel/charts/ebpfsentinel-operator
   LICENSE: AGPL-3.0-only
 
 jobs:
@@ -173,3 +176,99 @@ jobs:
     with:
       image: ${{ matrix.image }}
       digest: ${{ matrix.digest }}
+
+  # One chart for both images: it defaults to the open source build, and a
+  # licensed cluster points `image.repository` at the enterprise one. It carries
+  # the images' version and ships in the same run rather than behind a tag of
+  # its own, so the chart a customer pulls never names an image that is absent.
+  helm:
+    name: Helm chart
+    needs: [build-and-push]
+    if: inputs.push
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.push.outputs.image }}
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ebpfsentinel/ebpfsentinel-operator
+          ref: ${{ inputs.ref }}
+          path: src
+          token: ${{ secrets.SIBLING_READ_TOKEN || github.token }}
+
+      - name: Stamp version in Chart.yaml
+        working-directory: src
+        env:
+          VERSION: ${{ inputs.version }}
+          CHART_PATH: ${{ env.CHART_PATH }}
+        run: |
+          set -euo pipefail
+          sed -i "s/^version: .*/version: ${VERSION}/" "${CHART_PATH}/Chart.yaml"
+          sed -i "s/^appVersion: .*/appVersion: \"${VERSION}\"/" "${CHART_PATH}/Chart.yaml"
+          grep -E '^(version|appVersion):' "${CHART_PATH}/Chart.yaml"
+
+      - name: Install Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v3.16.3
+
+      - name: Helm lint
+        working-directory: src
+        run: helm lint ${{ env.CHART_PATH }}
+
+      - name: Helm template dry-run
+        working-directory: src
+        run: helm template test-release ${{ env.CHART_PATH }} > /dev/null
+
+      - name: Log in to ghcr.io
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REGISTRY_USER: ${{ github.actor }}
+        run: printf '%s' "$REGISTRY_TOKEN" | helm registry login ghcr.io -u "$REGISTRY_USER" --password-stdin
+
+      - name: Package chart
+        working-directory: src
+        run: helm package ${{ env.CHART_PATH }} --destination .helm-pkg
+
+      - name: Push to OCI registry
+        id: push
+        working-directory: src
+        env:
+          REGISTRY: ${{ env.REGISTRY }}
+          CHART_IMAGE: ${{ env.CHART_IMAGE }}
+        run: |
+          set -euo pipefail
+          helm push .helm-pkg/*.tgz "oci://${REGISTRY}/ebpfsentinel/charts" 2>&1 | tee push.log
+          DIGEST="$(grep -oiE 'sha256:[0-9a-f]{64}' push.log | head -1)"
+          if [ -z "$DIGEST" ]; then
+            echo "::error::could not parse the pushed chart digest from helm output"
+            exit 1
+          fi
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "image=${CHART_IMAGE}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload chart package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: operator-helm-chart
+          path: src/.helm-pkg/*.tgz
+          retention-days: 7
+
+  # No SBOM: syft produces nothing meaningful for a Helm chart.
+  sign-helm:
+    name: Sign chart
+    needs: [helm]
+    permissions:
+      id-token: write
+      packages: write
+      contents: read
+    uses: ebpfsentinel/ebpfsentinel-release/.github/workflows/sign-image.yml@v1
+    with:
+      image: ${{ needs.helm.outputs.image }}
+      digest: ${{ needs.helm.outputs.digest }}
+      sbom: false
