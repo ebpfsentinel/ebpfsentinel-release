@@ -14,7 +14,7 @@ First public release of the Kubernetes operator.
 
 #### Custom resources
 
-- **36 CRDs** covering the agent and its feature surface, with license-gated enterprise controllers
+- **37 CRDs** covering the agent and its feature surface, with license-gated enterprise controllers
 - **`EbpfSentinelAgent`**: `AttachMode` and container-awareness settings
 - **`TLSIntelligenceConfig`**: seven sub-capabilities, aligned with the JA4+ engine
 - **`ConnectionTrackingConfig`**: matches the kernel netfilter conntrack architecture
@@ -25,7 +25,7 @@ First public release of the Kubernetes operator.
 #### Deployment
 
 - **Helm chart** shipping the CRDs, agent defaults and enterprise feature configuration
-- **`operator_managed` forced in the rendered ConfigMap**, so a hand edit on the cluster cannot silently diverge from the CR
+- **Agent configuration rendered into a Secret** rather than a ConfigMap, since the agent reads credentials inline, with `operator_managed` forced so a hand edit on the cluster cannot silently diverge from the CR
 - **Distroless operator image**
 
 #### Supply chain
