@@ -78,7 +78,7 @@ of a `deny.toml` that may not differ between workspaces, and
 - `[licenses] allow` ⊆ the approved superset.
 
 Everything else stays per-workspace, because the license sets legitimately
-differ: AGPL for OSS and the operator, `LicenseRef-Proprietary` for Enterprise
+differ: AGPL for OSS, `LicenseRef-Proprietary` for Enterprise, the operator
 and the dashboard, Apache-2.0 for anomstream.
 
 Run it locally exactly as CI does:

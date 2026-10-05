@@ -1,9 +1,9 @@
 # Builds, pushes and signs the Kubernetes operator and its Helm chart from
 # THIS repository.
 #
-# Two images out of one source tree: the same operator with and without
-# `--features enterprise`. Both are published, because which one a cluster runs
-# is a licensing decision made at deploy time, not a build we can skip.
+# One image: every kind compiles in, and the operator refuses to start without
+# a licence carrying `kubernetes-operator`, so what a cluster reconciles is the
+# licence's decision rather than a build's.
 name: build-operator
 
 on:
@@ -33,10 +33,9 @@ env:
   REGISTRY: ghcr.io
   COMPONENT_REPO: ebpfsentinel/ebpfsentinel-operator
   IMAGE: ghcr.io/ebpfsentinel/ebpfsentinel-operator
-  ENTERPRISE_IMAGE: ghcr.io/ebpfsentinel/ebpfsentinel-operator-enterprise
   CHART_PATH: charts/ebpfsentinel-operator
   CHART_IMAGE: ghcr.io/ebpfsentinel/charts/ebpfsentinel-operator
-  LICENSE: AGPL-3.0-only
+  LICENSE: LicenseRef-Proprietary
 
 jobs:
   build-and-push:
@@ -47,24 +46,19 @@ jobs:
       contents: read
       packages: write
     outputs:
-      digest_oss: ${{ steps.build_oss.outputs.digest }}
-      digest_enterprise: ${{ steps.build_ent.outputs.digest }}
+      digest: ${{ steps.build.outputs.digest }}
       # Through a step rather than straight from `env`: the env context is not
       # available in job outputs.
-      image_oss: ${{ steps.names.outputs.oss }}
-      image_enterprise: ${{ steps.names.outputs.enterprise }}
+      image: ${{ steps.names.outputs.image }}
     steps:
-      - name: Image names
+      - name: Image name
         id: names
         env:
-          OSS: ${{ env.IMAGE }}
-          ENTERPRISE: ${{ env.ENTERPRISE_IMAGE }}
-        run: |
-          echo "oss=${OSS}" >> "$GITHUB_OUTPUT"
-          echo "enterprise=${ENTERPRISE}" >> "$GITHUB_OUTPUT"
+          IMAGE: ${{ env.IMAGE }}
+        run: echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
 
       # Before the registry login: a malformed version would otherwise be
-      # discovered only after two images had been pushed under a bad tag.
+      # discovered only after the image had been pushed under a bad tag.
       - name: Validate version
         env:
           VERSION: ${{ inputs.version }}
@@ -94,8 +88,8 @@ jobs:
       # repository, not to the operator, and a tag pointing at a commit that
       # never built the image is worse than no tag. The commit that did build it
       # is on the revision label below.
-      - name: Metadata (oss)
-        id: meta_oss
+      - name: Metadata
+        id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ env.IMAGE }}
@@ -110,52 +104,18 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ env.COMPONENT_REPO }}
             org.opencontainers.image.revision=${{ inputs.ref }}
 
-      - name: Build and push (oss)
-        id: build_oss
+      - name: Build and push
+        id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: src
           push: ${{ inputs.push }}
           provenance: true
-          tags: ${{ steps.meta_oss.outputs.tags }}
-          labels: ${{ steps.meta_oss.outputs.labels }}
-          # The Dockerfile switches on ENTERPRISE, not on a FEATURES string.
-          build-args: |
-            ENTERPRISE=false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
 
-      - name: Metadata (enterprise)
-        id: meta_ent
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
-        with:
-          images: ${{ env.ENTERPRISE_IMAGE }}
-          tags: |
-            type=raw,value=${{ inputs.version }}
-            type=raw,value=latest
-          labels: |
-            org.opencontainers.image.title=eBPFsentinel Operator (enterprise build)
-            org.opencontainers.image.version=${{ inputs.version }}
-            org.opencontainers.image.vendor=eBPFsentinel
-            org.opencontainers.image.licenses=${{ env.LICENSE }}
-            org.opencontainers.image.source=https://github.com/${{ env.COMPONENT_REPO }}
-            org.opencontainers.image.revision=${{ inputs.ref }}
 
-      - name: Build and push (enterprise)
-        id: build_ent
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: src
-          push: ${{ inputs.push }}
-          provenance: true
-          tags: ${{ steps.meta_ent.outputs.tags }}
-          labels: ${{ steps.meta_ent.outputs.labels }}
-          # Same tree, `--features enterprise` inside the builder stage. Without
-          # this the two published images would be byte-identical builds under
-          # two names, and the enterprise one would silently lack its features.
-          build-args: |
-            ENTERPRISE=true
-
-  # cosign keyless signature + SBOM, one job per image variant. The full remote
-  # form is deliberate: Sigstore records the CALLED ref as the certificate
+  # cosign keyless signature + SBOM. The full remote form is deliberate: Sigstore records the CALLED ref as the certificate
   # subject, and every published policy pins @refs/tags/v*.
   sign:
     name: Sign and attest
@@ -165,21 +125,12 @@ jobs:
       id-token: write
       packages: write
       contents: read
-    strategy:
-      matrix:
-        include:
-          - image: ${{ needs.build-and-push.outputs.image_oss }}
-            digest: ${{ needs.build-and-push.outputs.digest_oss }}
-          - image: ${{ needs.build-and-push.outputs.image_enterprise }}
-            digest: ${{ needs.build-and-push.outputs.digest_enterprise }}
     uses: ebpfsentinel/ebpfsentinel-release/.github/workflows/sign-image.yml@v1
     with:
-      image: ${{ matrix.image }}
-      digest: ${{ matrix.digest }}
+      image: ${{ needs.build-and-push.outputs.image }}
+      digest: ${{ needs.build-and-push.outputs.digest }}
 
-  # One chart for both images: it defaults to the open source build, and a
-  # licensed cluster points `image.repository` at the enterprise one. It carries
-  # the images' version and ships in the same run rather than behind a tag of
+  # The chart names the image by default. It carries the image's version and ships in the same run rather than behind a tag of
   # its own, so the chart a customer pulls never names an image that is absent.
   helm:
     name: Helm chart

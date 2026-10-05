@@ -2,8 +2,8 @@
 #
 # This is not a drop-in cargo-deny config - each workspace keeps its own
 # deny.toml, because their license sets legitimately differ (AGPL for OSS,
-# LicenseRef-Proprietary for Enterprise and the dashboard, Apache-2.0 for
-# anomstream). What this file defines is the part that must NOT differ.
+# LicenseRef-Proprietary for Enterprise, the operator and the dashboard,
+# Apache-2.0 for anomstream). What this file defines is the part that must NOT differ.
 #
 # `scripts/check-deny-policy.py` reads it and fails a workspace whose deny.toml
 # is weaker. Centralizing the *floor* rather than the whole config means a repo

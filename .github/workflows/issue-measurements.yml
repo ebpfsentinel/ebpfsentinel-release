@@ -305,9 +305,8 @@ jobs:
           mkdir -p sboms
           ID_RE='^https://github.com/ebpfsentinel/ebpfsentinel-release/.github/workflows/sign-image.yml@refs/tags/v.*$'
           SIGNER=ebpfsentinel/ebpfsentinel-release
-          # A component can declare several images (an agent and its warden,
-          # the operator and its enterprise build), so the SBOM is keyed on the
-          # image name rather than the component name.
+          # A component can declare several images (an agent and its warden),
+          # so the SBOM is keyed on the image name rather than the component name.
           python3 -c "
           import sys, yaml
           for c in yaml.safe_load(open(sys.argv[1]))['components']:

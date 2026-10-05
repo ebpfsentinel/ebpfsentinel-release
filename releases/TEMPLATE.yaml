@@ -67,16 +67,14 @@ components:
         tarball: "ebpfsentinel-enterprise-{version}-linux-{arch}.tar.gz"
         arches: [amd64, arm64]
 
-  # Two images from one source tree: the second is the same operator compiled
-  # with `--features enterprise`, which is what a licensed cluster runs.
+  # One image carrying every kind; it starts only with a licence naming
+  # `kubernetes-operator`.
   - name: ebpfsentinel-operator
     repo: ebpfsentinel/ebpfsentinel-operator
     version: "2026.6.1"
     ref: "0000000000000000000000000000000000000000"
-    license: AGPL-3.0-only
-    image:
-      - ghcr.io/ebpfsentinel/ebpfsentinel-operator
-      - ghcr.io/ebpfsentinel/ebpfsentinel-operator-enterprise
+    license: LicenseRef-Proprietary
+    image: ghcr.io/ebpfsentinel/ebpfsentinel-operator
 
   - name: ebpfsentinel-dashboard
     repo: ebpfsentinel/ebpfsentinel-dashboard
