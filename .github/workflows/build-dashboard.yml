@@ -72,6 +72,20 @@ jobs:
           path: src
           token: ${{ secrets.SIBLING_READ_TOKEN }}
 
+      # This repository, for the release signing public keys the dashboard
+      # compiles in to verify a signed measurements manifest. Fails closed: a
+      # dashboard without them refuses every manifest it is pointed at.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: release
+
+      - name: Read the release signing keys
+        id: release-keys
+        # Assigned first: a substitution inside `echo` would hide its failure.
+        run: |
+          pairs="$(bash release/scripts/release-signing-keys.sh release/policy/keys)"
+          echo "pairs=${pairs}" >> "$GITHUB_OUTPUT"
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
 
@@ -123,6 +137,7 @@ jobs:
           build-args: |
             AGENT_REPO=${{ env.AGENT_REPO_URL }}
             AGENT_REF=${{ inputs.oss-ref }}
+            RELEASE_SIGNING_KEYS=${{ steps.release-keys.outputs.pairs }}
 
   # The full remote form is deliberate: Sigstore records the CALLED ref as the
   # certificate subject, and every published policy pins @refs/tags/v*.

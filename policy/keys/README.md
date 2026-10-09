@@ -26,6 +26,13 @@ ebpfsentinel-license verify-manifest \
 Every `measurements/v*` release attaches copies of these files, so a customer
 verifying offline does not need to fetch this repo.
 
+The enterprise agent carries them too. `build-enterprise.yml` reads this pair,
+and every superseded pair still here, through `scripts/release-signing-keys.sh`
+and compiles them into the agent, which verifies its measurements manifest and
+its integrity manifest against them before it unlocks a licence. The script
+fails when either current file is missing, so a release cannot build an agent
+that never unlocks.
+
 ## License signing
 
 | File | Algorithm | Verifies |
@@ -34,6 +41,13 @@ verifying offline does not need to fetch this repo.
 | `license-signing-pq.pub` | ML-DSA-65 (FIPS 204) | a customer `.lic` file (post-quantum signature) |
 
 Same rule: both must verify.
+
+A pair is named by its key id, the first sixteen hex characters of the SHA-256
+of both public halves. `ebpfsentinel-license keygen` prints it, every licence
+signed since keys were named carries it, and `inspect` shows it as
+`Signing key`. The agent carries each pair it trusts under that id, so a
+licence is checked against the pair it names and a refusal says which pair the
+build lacks.
 
 ```bash
 ebpfsentinel-license inspect ebpfsentinel-<org>.lic \

@@ -120,6 +120,16 @@ jobs:
       # and needs no `platforms:`. No build cache is read or written: a release
       # is compiled from the source at its ref and nothing a pull request run
       # could have left in the Actions cache.
+      # The release signing public keys, compiled into the agent so it can
+      # verify the measurements manifest issued for it. Fails closed: a build
+      # without them ships an agent that holds every licence back to OSS.
+      - name: Read the release signing keys
+        id: release-keys
+        # Assigned first: a substitution inside `echo` would hide its failure.
+        run: |
+          pairs="$(bash release/scripts/release-signing-keys.sh release/policy/keys)"
+          echo "pairs=${pairs}" >> "$GITHUB_OUTPUT"
+
       - name: Build release binaries
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         env:
@@ -143,6 +153,7 @@ jobs:
             ANOMSTREAM_REPO=${{ env.ANOMSTREAM_REPO_URL }}
             ANOMSTREAM_REF=${{ inputs.anomstream-ref }}
             TELEMETRY_ENDPOINT=${{ vars.TELEMETRY_ENDPOINT }}
+            RELEASE_SIGNING_KEYS=${{ steps.release-keys.outputs.pairs }}
           outputs: type=local,dest=binaries
 
       # The broker the rootless agent asks for its bpffs. Built from its own
@@ -203,7 +214,14 @@ jobs:
             fi
             install -m 0644 "release/policy/keys/${key}" "${STAGING}/"
           done
-          cp src/LICENSE "${STAGING}/"
+          # The agreement the paid binaries are used under. The enterprise
+          # sources carry no LICENSE: they are not licensed to anyone, and what
+          # a customer may do with what they were sold is this file.
+          if [ ! -s src/EULA.md ]; then
+            echo "::error::EULA.md is missing from the enterprise tree"
+            exit 1
+          fi
+          install -m 0644 src/EULA.md "${STAGING}/"
           tar czf "${STAGING}.tar.gz" "${STAGING}"
           echo "TARBALL=${STAGING}.tar.gz" >> "$GITHUB_ENV"
 
@@ -288,6 +306,21 @@ jobs:
           path: src
           token: ${{ secrets.SIBLING_READ_TOKEN }}
 
+      # This repository, for the release signing public keys the agent image
+      # compiles in, read the same way the tarball build reads them.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: matrix.component == 'agent'
+        with:
+          path: release
+
+      - name: Read the release signing keys
+        id: release-keys
+        if: matrix.component == 'agent'
+        # Assigned first: a substitution inside `echo` would hide its failure.
+        run: |
+          pairs="$(bash release/scripts/release-signing-keys.sh release/policy/keys)"
+          echo "pairs=${pairs}" >> "$GITHUB_OUTPUT"
+
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ${{ env.REGISTRY }}
@@ -341,9 +374,10 @@ jobs:
           push: ${{ inputs.push }}
           provenance: false
           sbom: false
-          # The endpoint goes to the agent only: the warden brokers eBPF loads
-          # and sends no heartbeat, so passing it there would be an argument its
-          # Dockerfile does not declare.
+          # The endpoint and the release keys go to the agent only: the warden
+          # brokers eBPF loads, sends no heartbeat and verifies no manifest, so
+          # passing either there would be an argument its Dockerfile does not
+          # declare.
           build-args: |
             VERSION=${{ inputs.version }}
             OSS_REPO=${{ env.OSS_REPO_URL }}
@@ -351,6 +385,7 @@ jobs:
             ANOMSTREAM_REPO=${{ env.ANOMSTREAM_REPO_URL }}
             ANOMSTREAM_REF=${{ inputs.anomstream-ref }}
             ${{ matrix.component == 'agent' && format('TELEMETRY_ENDPOINT={0}', vars.TELEMETRY_ENDPOINT) || '' }}
+            ${{ matrix.component == 'agent' && format('RELEASE_SIGNING_KEYS={0}', steps.release-keys.outputs.pairs) || '' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           outputs: type=image,oci-mediatypes=true

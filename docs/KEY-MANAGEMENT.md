@@ -50,6 +50,14 @@ Then:
 `policy/keys/` does not hold the matching public keys, and re-verifies every
 manifest it signs against those public keys before publishing.
 
+The enterprise agent verifies against the same public keys, compiled in.
+`build-enterprise.yml` reads them through `scripts/release-signing-keys.sh` and
+passes them to the binary and image builds as `RELEASE_SIGNING_KEYS`: the agent
+checks its measurements manifest and its integrity manifest with them before it
+unlocks a licence, and a build handed none runs the open source feature set
+whatever key it is given. The script fails when either current file is missing,
+so that build never leaves this pipeline.
+
 ## Generating the license signing pair
 
 Same tool, same offline machine, different filenames - and unlike the release
@@ -65,6 +73,10 @@ ebpfsentinel-license keygen \
   --pq-public-key  license-signing-pq.pub
 ```
 
+`keygen` prints the pair's key id, the first sixteen hex characters of the
+SHA-256 of both public halves. Every licence the pair signs carries it, and it
+is the name the agent files the pair under.
+
 Then:
 
 1. Store the two `.key` files in the org's secret manager and an offline backup.
@@ -72,7 +84,12 @@ Then:
    workflow run - that separation is the entire reason there are two pairs.
 2. Commit the two `.pub` files to `policy/keys/`.
 3. Compile the same public keys into the enterprise agent, which verifies a
-   licence at load time and is the check that actually gates the software.
+   licence at load time and is the check that actually gates the software. The
+   agent keeps each pair as raw bytes under
+   `crates/enterprise-agent/keys/license/<key id>/` (`ed25519.pub.bin`,
+   `ml-dsa-65.pub.bin`) and lists it in `LICENSE_KEYS`; a test fails if a
+   directory is committed and not listed, or named by an id its bytes do not
+   produce.
 
 The public halves must be published, because a licence arrives over a web
 session and a customer cannot authenticate it against a key that arrived down
@@ -86,8 +103,11 @@ and `issue-measurements.yml` fail closed if either file is missing.
 Rotate on a fixed schedule (yearly) and immediately on suspected compromise.
 
 1. Generate a new pair as above; keep the old public keys in `policy/keys/`
-   under a dated name (`release-signing-ed25519.2026.pub`) so already-published
-   manifests stay verifiable.
+   under a dated name (`release-signing-ed25519.2026.pub` beside
+   `release-signing-mldsa.2026.pub`) so already-published manifests stay
+   verifiable. The next enterprise build compiles the dated pair in beside the
+   current one, so an agent already released keeps verifying the manifests
+   issued for it.
 2. Swap the repository secrets, replace the current `.pub` files, commit.
 3. Re-issue the measurements manifest for every release still under support,
    so supported releases verify under the current key.
@@ -98,10 +118,13 @@ Rotate on a fixed schedule (yearly) and immediately on suspected compromise.
 Rotating the **license** pair has no repository secret to swap, and one extra
 constraint: an agent already deployed carries the old public keys compiled in,
 so a licence signed under the new pair is refused until that agent is upgraded.
-Sign under the new pair only for releases whose agents carry it, keep the old
-public key in `policy/keys/` under its dated name for as long as any licence
-signed with it is still inside its term, and revoke rather than re-sign if the
-old private half is what was compromised.
+Add the new pair to the agent under its own key id directory and keep the old
+one beside it: an agent carries every pair it trusts and checks a licence
+against the one it names, so both generations verify on the same build. Sign
+under the new pair only for releases whose agents carry it, keep the old public
+key in `policy/keys/` under its dated name and in the agent for as long as any
+licence signed with it is still inside its term, and revoke rather than re-sign
+if the old private half is what was compromised.
 
 The keyless (cosign) identity needs no rotation: certificates are short-lived
 and the trust anchor is the workflow identity, not a key. Changing the repo,
