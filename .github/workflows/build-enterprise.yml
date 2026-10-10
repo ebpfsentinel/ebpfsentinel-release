@@ -214,14 +214,19 @@ jobs:
             fi
             install -m 0644 "release/policy/keys/${key}" "${STAGING}/"
           done
-          # The agreement the paid binaries are used under. The enterprise
+          # The agreements the paid binaries are used under. The enterprise
           # sources carry no LICENSE: they are not licensed to anyone, and what
-          # a customer may do with what they were sold is this file.
-          if [ ! -s src/EULA.md ]; then
-            echo "::error::EULA.md is missing from the enterprise tree"
-            exit 1
-          fi
-          install -m 0644 src/EULA.md "${STAGING}/"
+          # a customer may do with what they were sold is these files - the
+          # enterprise agreement and the provider one, each in English and in
+          # French, because the French text is the one that prevails in France
+          # and an agreement promising a copy the tarball lacks is a broken one.
+          for eula in EULA.md EULA.fr.md EULA-MSSP.md EULA-MSSP.fr.md; do
+            if [ ! -s "src/${eula}" ]; then
+              echo "::error::${eula} is missing from the enterprise tree"
+              exit 1
+            fi
+            install -m 0644 "src/${eula}" "${STAGING}/"
+          done
           tar czf "${STAGING}.tar.gz" "${STAGING}"
           echo "TARBALL=${STAGING}.tar.gz" >> "$GITHUB_ENV"
 
