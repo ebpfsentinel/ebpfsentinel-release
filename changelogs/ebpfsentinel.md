@@ -30,6 +30,14 @@ Within each release, entries are grouped **Added → Changed → Fixed → Secur
 
 ### Changed
 
+#### Control API, shut by default
+- **`auth.enabled` now defaults to `true`.** An agent with no authentication configured used to answer anything that could reach it; it now authenticates every route under `/api/v1`. `/healthz` and `/readyz` never authenticate, and `/metrics` follows `auth.metrics_auth_required`
+- **A key is generated at first start** when no API key, JWT secret or OIDC issuer is configured: 32 random bytes as `sk-<64 hex>`, written to `auth.bootstrap_key_path` (`/var/lib/ebpfsentinel/auth/api-key`, mode `0600` inside a `0700` directory) and logged once, never again. Setting the path to the empty string refuses the generated key, and the agent then refuses to serve an unauthenticated API off loopback
+- **A non-loopback bind is two separate decisions.** An API reachable off loopback refuses to start unauthenticated unless `agent.allow_unauthenticated_api: true`, and refuses to serve plaintext unless TLS is configured or `agent.allow_plaintext_api: true`. Each refusal names the address it was given, the switch that lifts it and the fix
+- **The CLI finds the generated key by itself** when it runs beside the agent, reading `auth.bootstrap_key_path` out of the agent's own configuration, so every published invocation keeps working without a credential pasted by hand
+- **`X-API-Key` is accepted** alongside `Authorization: Bearer` on the HTTP API, since that is what the dashboard and most scrapers send
+- **Chart**: `auth.existingSecret` and `auth.secretKey` mount a key shared by every pod, `metrics.authRequired` gates the scrape and makes the ServiceMonitor present the Secret, and the chart refuses to render a gated scrape with no Secret named. Without a Secret each pod draws its own key
+
 #### eBPF toolchain
 - **aya 0.14.0, aya-obj 0.3.0, aya-ebpf 0.2.1**. `ebpf-common` pinned aya directly instead of through the workspace, so the dependency graph carried two aya versions and every `Pod` implementation targeted the older trait; the pin is now unified
 - **`aya-build`, `aya-log` and `aya-log-ebpf` removed.** The log call sites were `#[cfg(debug_assertions)]` and kernel objects are built in release, so the shipped program bytes are byte-identical
@@ -53,6 +61,7 @@ Within each release, entries are grouped **Added → Changed → Fixed → Secur
 
 ### Security
 
+- **An unconfigured agent no longer serves an open control API.** Authentication is on by default and a key exists from the first start, so an agent whose listener is reachable - a bind widened for a scrape, a container port published, a pod on a flat network - no longer hands firewall rules, captures and configuration to whoever asks. Upgrading a deployment that configured no authentication changes its behaviour; see the upgrade note in the documentation
 - **Cross-connection payload disclosure in L7 events (`tc-ids`).** The ring-buffer reservation was not zeroed before use, so a failed payload read submitted whatever the ring last held, under this packet's header and at this packet's length - userspace was handed another connection's bytes as if they belonged to this one. The reservation is now discarded on a failed read and the failure is counted
 
 ## [2026.6.1] - 2026-06-16

@@ -163,6 +163,10 @@ First public release of the enterprise layer. Everything below is new relative t
 - **OpenAPI documentation with Swagger UI** on every endpoint
 - **Standalone OSS datapath alerts surfaced at `/api/v1/alerts`**
 
+#### Listener posture
+
+- **Every listener is shut by default**: the REST surface authenticates, and a listener bound off loopback refuses to start unauthenticated unless `agent.allow_unauthenticated_api: true` and refuses plaintext unless TLS is configured or `agent.allow_plaintext_api: true`. Two separate switches for two separate risks, each refusal naming the address, the switch and the fix
+
 #### Air-gap
 
 - **Feed bundle import/export** verified with Ed25519 + SHA-256, offline CLI workflow and startup enforcement with feature detection

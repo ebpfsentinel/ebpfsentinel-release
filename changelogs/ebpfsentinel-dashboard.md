@@ -42,6 +42,7 @@ First public release of the dashboard. Entries describe the product as shipped; 
 - **gRPC alert fan-in** alongside SSE
 - **Per-tenant broadcast capacity** with queue metrics, malformed-event counter, and no raw payload echo
 - **Reverse proxy and SSE handlers** with a typed generated client
+- **Agents are reached with the credential named by `api_token_env`**, which agents now require by default; a pool probe refused with 401 or 403 leaves the agent out and says whether a key was presented at all, rather than reporting the host as silent
 
 #### History and search
 
