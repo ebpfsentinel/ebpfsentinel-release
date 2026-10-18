@@ -58,6 +58,15 @@ them changed. The manifest is what states which versions belong together, and
    actually exists, then creates ONE draft release `v<version>` here with the
    aggregated notes.
 
+   `build-ebpfsentinel` also packages the demo lab from the same pinned commit,
+   as `ebpfsentinel-demo.tar.gz`, and puts it in the blob bundle with the
+   tarballs so it is signed and listed in `SHA256SUMS` like them. Everything a
+   reader runs is retrieved here, the lab included, and it is the one asset
+   whose name carries no version: it is fetched before anybody has chosen a
+   release, so `releases/latest/download/` has to resolve, and the version it
+   came from travels inside it as an `.env` pinning `EBPFSENTINEL_TAG`. It is
+   not in the measurements manifest, which inventories binaries.
+
    The build workflows are *called*, not dispatched, so everything happens in a
    single run: artifacts are already in scope, there is nothing to poll for and
    no token with write access to this repository sitting in another repo's

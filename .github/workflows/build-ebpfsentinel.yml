@@ -226,10 +226,62 @@ jobs:
           path: ${{ env.TARBALL }}
           retention-days: 30
 
+  # ── The demo lab, packaged once ───────────────────────────────────
+  # Everything a reader downloads comes from the release, the lab included:
+  # pointing a first-time visitor at a clone of the component repository would
+  # give them a second place to retrieve from and a tree whose demo does not
+  # match the images this release published.
+  #
+  # The asset name carries no version on purpose. It is the one asset fetched
+  # by hand before anybody knows which release they want, so
+  # `releases/latest/download/ebpfsentinel-demo.tar.gz` has to resolve without
+  # a version lookup; which release it came from is in the release's own
+  # SHA256SUMS, which signs it like every other blob here.
+  lab:
+    name: Package the demo lab
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ebpfsentinel/ebpfsentinel
+          ref: ${{ inputs.ref }}
+          path: src
+          token: ${{ secrets.SIBLING_READ_TOKEN || github.token }}
+
+      - name: Create the lab tarball
+        working-directory: src
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          STAGING=ebpfsentinel-demo
+          mkdir -p "${STAGING}"
+          cp -a demo/. "${STAGING}/"
+          # `--local` builds the agent from a source checkout and its override
+          # file reaches out of the demo directory, which a tarball has no way
+          # to satisfy. Drop it: this lab runs the images this release
+          # published, and demo.sh says so when the flag is passed anyway.
+          rm -f "${STAGING}/compose.local.yaml"
+          rm -rf "${STAGING}/.run"
+          # The lab pulls `latest` by default. Pin it to the release being cut,
+          # so a lab downloaded from release N keeps running release N.
+          printf 'EBPFSENTINEL_TAG=%s\n' "${VERSION}" > "${STAGING}/.env"
+          cp LICENSE "${STAGING}/"
+          tar czf "${STAGING}.tar.gz" "${STAGING}"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ebpfsentinel-release-lab
+          path: src/ebpfsentinel-demo.tar.gz
+          retention-days: 30
+
   # ── One artifact for the signer and the publisher ─────────────────
   bundle:
     name: Bundle artifacts
-    needs: [build-release]
+    needs: [build-release, lab]
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:
