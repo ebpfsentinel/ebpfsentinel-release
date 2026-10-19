@@ -1,0 +1,316 @@
+# Publish the apt and dnf repositories for a release that already exists.
+#
+# Nothing is built here. The packages come from the release assets, which
+# build-ebpfsentinel.yml produced and cut-release.yml signed, and they are
+# checked against the signed SHA256SUMS before a byte of them reaches the
+# pool. The step a release cannot do for itself is the indexing, because an
+# index covers every version ever published and not the one being cut.
+#
+# Why a second signature exists at all. apt and dnf predate Sigstore and
+# verify an index with OpenPGP: apt reads `InRelease`, dnf reads
+# `repomd.xml.asc`, and neither can be taught to read a cosign bundle. The
+# repository signing key is therefore a fourth identity, documented in
+# docs/KEY-MANAGEMENT.md, and it signs indexes and packages. It never signs
+# a measurement, a licence or an image, and nothing it signs is the only
+# proof of anything: the same packages carry the release's cosign bundle.
+#
+# Old versions stay. The published tree is fetched, the new packages are
+# added to the pool beside what is already there, and the indexes are
+# rebuilt over the whole pool, because `apt-get install ebpfsentinel=<old>`
+# is the first thing an operator reaches for when a rollout goes wrong.
+name: Publish package repository
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Release version whose packages to publish (YYYY.M.X)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  # The published tree is one branch, rebuilt in place. Two runs at once
+  # would race on the indexes and one of them would publish a pool it did
+  # not index.
+  group: package-repository
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Rebuild and publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check the signing identity is configured
+        env:
+          FINGERPRINT: ${{ vars.REPOSITORY_SIGNING_FINGERPRINT }}
+          KEY: ${{ secrets.REPOSITORY_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          # Checked before anything is downloaded: a run that fails here has
+          # changed nothing, and it names the missing secret instead of
+          # leaving half a tree published without an index.
+          if [ -z "${KEY}" ]; then
+            echo "::error::secret REPOSITORY_SIGNING_KEY is not set in this repository (see docs/PACKAGE-REPOSITORY.md)"
+            exit 1
+          fi
+          if [ -z "${FINGERPRINT}" ]; then
+            echo "::error::repository variable REPOSITORY_SIGNING_FINGERPRINT is not set; without it a swapped key would publish silently"
+            exit 1
+          fi
+
+      - name: Install the indexing tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y apt-utils dpkg-dev createrepo-c rpm
+
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Download the release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          REL: ${{ inputs.release }}
+        run: |
+          set -euo pipefail
+          mkdir -p incoming
+          cd incoming
+          # cut-release.yml renames each bundle's checksum file after the
+          # bundle it signs, so the agent's is `ebpfsentinel-SHA256SUMS` and
+          # the enterprise one sits beside it under its own name. Asking for
+          # the bare name would match nothing and download no sums at all.
+          gh release download "v${REL}" \
+            --pattern '*.deb' --pattern '*.rpm' \
+            --pattern 'ebpfsentinel-SHA256SUMS' \
+            --pattern 'ebpfsentinel-SHA256SUMS.sig' \
+            --pattern 'ebpfsentinel-SHA256SUMS.crt'
+          ls -l
+
+      - name: Verify the assets against the signed sums
+        working-directory: incoming
+        env:
+          REL: ${{ inputs.release }}
+        run: |
+          set -euo pipefail
+          # The signature over SHA256SUMS is the release identity; the sums
+          # are what ties each package to it. A package not listed there is
+          # a package this release did not publish, and nothing unlisted
+          # reaches the pool.
+          SUMS=ebpfsentinel-SHA256SUMS
+          "${GITHUB_WORKSPACE}/policy/verify.sh" sums "${SUMS}" "${SUMS}.sig" "${SUMS}.crt"
+          found=0
+          for pkg in *.deb *.rpm; do
+            [ -e "$pkg" ] || continue
+            grep -q "  ${pkg}\$" "${SUMS}" || {
+              echo "::error::${pkg} is not listed in the signed SHA256SUMS of v${REL}"
+              exit 1
+            }
+            found=$((found + 1))
+          done
+          if [ "$found" -eq 0 ]; then
+            echo "::error::v${REL} published no .deb or .rpm asset"
+            exit 1
+          fi
+          sha256sum --ignore-missing -c "${SUMS}"
+
+      - name: Import the repository signing key
+        env:
+          KEY: ${{ secrets.REPOSITORY_SIGNING_KEY }}
+          PASSPHRASE: ${{ secrets.REPOSITORY_SIGNING_PASSPHRASE }}
+          FINGERPRINT: ${{ vars.REPOSITORY_SIGNING_FINGERPRINT }}
+        run: |
+          set -euo pipefail
+          export GNUPGHOME="${RUNNER_TEMP}/gnupg"
+          mkdir -m 700 -p "${GNUPGHOME}"
+          printf 'pinentry-mode loopback\n' > "${GNUPGHOME}/gpg.conf"
+          printf 'allow-loopback-pinentry\n' > "${GNUPGHOME}/gpg-agent.conf"
+          # The passphrase goes through a file rather than a command line:
+          # a command line is readable by every process on the runner.
+          umask 077
+          printf '%s' "${PASSPHRASE}" > "${RUNNER_TEMP}/passphrase"
+          printf '%s\n' "${KEY}" \
+            | gpg --batch --passphrase-file "${RUNNER_TEMP}/passphrase" --import
+          # The fingerprint is checked rather than read back: an index signed
+          # by the wrong key is one every installed host refuses, and it
+          # would be found by a customer rather than here.
+          gpg --batch --list-secret-keys --with-colons \
+            | awk -F: '/^fpr:/ { print $10 }' \
+            | grep -qx "${FINGERPRINT}" || {
+              echo "::error::the imported key is not ${FINGERPRINT}"
+              exit 1
+            }
+          echo "GNUPGHOME=${GNUPGHOME}" >> "$GITHUB_ENV"
+          echo "PASSPHRASE_FILE=${RUNNER_TEMP}/passphrase" >> "$GITHUB_ENV"
+
+      - name: Fetch the published tree
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # The branch does not exist on the first publication.
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+            git clone --branch gh-pages --depth 1 \
+              "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" site
+          else
+            mkdir site
+            git -C site init -b gh-pages
+            git -C site remote add origin \
+              "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          fi
+          mkdir -p site/apt/pool/main/e/ebpfsentinel
+          mkdir -p site/rpm/stable/x86_64 site/rpm/stable/aarch64
+
+      - name: Add the new packages to the pool
+        env:
+          FINGERPRINT: ${{ vars.REPOSITORY_SIGNING_FINGERPRINT }}
+        run: |
+          set -euo pipefail
+          cp incoming/*.deb site/apt/pool/main/e/ebpfsentinel/
+          for rpm in incoming/*.rpm; do
+            case "$rpm" in
+              *x86_64.rpm) cp "$rpm" site/rpm/stable/x86_64/ ;;
+              *aarch64.rpm) cp "$rpm" site/rpm/stable/aarch64/ ;;
+              *) echo "::error::$rpm names an architecture this repository does not publish"; exit 1 ;;
+            esac
+          done
+
+          # dnf checks the package signature as well as the index, so every
+          # rpm in the pool carries one. Signing an rpm that already has the
+          # same signature is a no-op, which is what makes re-running this
+          # workflow safe.
+          cat > "${HOME}/.rpmmacros" <<MACROS
+          %_gpg_name ${FINGERPRINT}
+          %__gpg_sign_cmd %{__gpg} gpg --batch --pinentry-mode loopback --passphrase-file ${PASSPHRASE_FILE} --no-armor --no-secmem-warning -u "%{_gpg_name}" -sbo %{__signature_filename} %{__plaintext_filename}
+          MACROS
+          find site/rpm -name '*.rpm' -print0 | xargs -0 --no-run-if-empty rpmsign --addsign
+
+      - name: Rebuild the apt index
+        working-directory: site/apt
+        env:
+          REL: ${{ inputs.release }}
+        run: |
+          set -euo pipefail
+          for arch in amd64 arm64; do
+            dir="dists/stable/main/binary-${arch}"
+            mkdir -p "$dir"
+            dpkg-scanpackages --arch "$arch" pool > "${dir}/Packages"
+            gzip -9fk "${dir}/Packages"
+            cat > "${dir}/Release" <<META
+          Archive: stable
+          Component: main
+          Origin: eBPFsentinel
+          Label: eBPFsentinel
+          Architecture: ${arch}
+          META
+          done
+
+          apt-ftparchive \
+            -o APT::FTPArchive::Release::Origin=eBPFsentinel \
+            -o APT::FTPArchive::Release::Label=eBPFsentinel \
+            -o APT::FTPArchive::Release::Suite=stable \
+            -o APT::FTPArchive::Release::Codename=stable \
+            -o APT::FTPArchive::Release::Architectures="amd64 arm64" \
+            -o APT::FTPArchive::Release::Components=main \
+            -o "APT::FTPArchive::Release::Description=eBPFsentinel ${REL}" \
+            release dists/stable > dists/stable/Release
+
+          # Both forms: InRelease is what a current apt reads, Release.gpg is
+          # what an older one and every mirroring script still expects.
+          rm -f dists/stable/InRelease dists/stable/Release.gpg
+          gpg --batch --yes --passphrase-file "${PASSPHRASE_FILE}" --clearsign \
+            -o dists/stable/InRelease dists/stable/Release
+          gpg --batch --yes --passphrase-file "${PASSPHRASE_FILE}" --detach-sign --armor \
+            -o dists/stable/Release.gpg dists/stable/Release
+
+      - name: Rebuild the dnf index
+        run: |
+          set -euo pipefail
+          for arch in x86_64 aarch64; do
+            dir="site/rpm/stable/${arch}"
+            createrepo_c --update "$dir"
+            rm -f "${dir}/repodata/repomd.xml.asc"
+            gpg --batch --yes --passphrase-file "${PASSPHRASE_FILE}" --detach-sign --armor \
+              "${dir}/repodata/repomd.xml"
+          done
+
+      - name: Publish the public key and the landing page
+        env:
+          FINGERPRINT: ${{ vars.REPOSITORY_SIGNING_FINGERPRINT }}
+          REL: ${{ inputs.release }}
+        run: |
+          set -euo pipefail
+          # The key a host installs comes from the repository it is about to
+          # trust, which is unavoidable for a package repository. What makes
+          # it checkable is the fingerprint, published in the documentation
+          # and in the release notes, and the packages being verifiable on
+          # their own against the release's cosign bundle.
+          gpg --batch --armor --export "${FINGERPRINT}" > site/ebpfsentinel.asc
+          gpg --batch --export "${FINGERPRINT}" > site/ebpfsentinel.gpg
+
+          # The dnf side ships its own repository file, because the two dnf
+          # generations disagree about how to add one from the command line
+          # and a documented `curl` into /etc/yum.repos.d works on both.
+          # `$basearch` is dnf's own variable and must survive this heredoc.
+          cat > site/ebpfsentinel.repo <<'REPO'
+          [ebpfsentinel]
+          name=eBPFsentinel
+          baseurl=https://ebpfsentinel.github.io/ebpfsentinel-release/rpm/stable/$basearch
+          enabled=1
+          gpgcheck=1
+          repo_gpgcheck=1
+          gpgkey=https://ebpfsentinel.github.io/ebpfsentinel-release/ebpfsentinel.asc
+          REPO
+          python3 - <<'PY' > site/index.html
+          import html, os
+
+          fingerprint = html.escape(os.environ["FINGERPRINT"])
+          release = html.escape(os.environ["REL"])
+          print(f"""<!doctype html>
+          <html lang="en"><head><meta charset="utf-8">
+          <title>eBPFsentinel package repository</title></head>
+          <body>
+          <h1>eBPFsentinel package repository</h1>
+          <p>Latest release: {release}. Signing key fingerprint:
+          <code>{fingerprint}</code>.</p>
+          <p>The commands to add this repository are in the installation
+          documentation. Every package here is attached to the matching
+          GitHub release and carries the same cosign signature.</p>
+          </body></html>""")
+          PY
+          touch site/.nojekyll
+
+      - name: Push
+        working-directory: site
+        env:
+          REL: ${{ inputs.release }}
+        run: |
+          set -euo pipefail
+          git config user.name "eBPFsentinel release"
+          git config user.email "release@ebpfsentinel.io"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "the published tree already holds ${REL}, nothing to push"
+            exit 0
+          fi
+          git commit -m "publish package repository for ${REL}"
+          git push origin HEAD:gh-pages
+
+      - name: Next step
+        env:
+          REL: ${{ inputs.release }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### Package repository updated for ${REL}"
+            echo
+            echo "Check it from a clean host before announcing it:"
+            echo "docs/PACKAGE-REPOSITORY.md, section 'Checking a publication'."
+          } >> "$GITHUB_STEP_SUMMARY"

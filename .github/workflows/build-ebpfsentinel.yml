@@ -215,15 +215,59 @@ jobs:
           # to the container deployment, not to a systemd unit.
           cp -a dist/apparmor.d "${STAGING}/"
           cp -a dist/sysctl.d "${STAGING}/"
+          # The three host profiles are the starting configuration an operator
+          # copies over the reference one, and the uninstall script is how a
+          # manual install is undone - a tarball with no way back out is a
+          # tarball somebody removes by guessing.
+          cp -a config/profiles "${STAGING}/"
+          cp dist/uninstall.sh "${STAGING}/"
           cp LICENSE "${STAGING}/"
           cp target/bpfel-unknown-none/release/* "${STAGING}/ebpf/"
           tar czf "${STAGING}.tar.gz" "${STAGING}"
           echo "TARBALL=src/${STAGING}.tar.gz" >> "$GITHUB_ENV"
 
+      # nfpm turns the same staging layout into a .deb and an .rpm. The
+      # runner is x86_64 for both matrix legs - the arm64 binaries are
+      # cross-compiled - so one tool build covers both packages.
+      - name: Install nfpm
+        env:
+          NFPM_VERSION: 2.48.0
+          NFPM_SHA256: 6d7f9a28b2f397934403950fcbba83f598b08d02edbe79a0815b3b4897341750
+        run: |
+          set -euo pipefail
+          url="https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz"
+          curl -sSfL -o nfpm.tar.gz "$url"
+          echo "${NFPM_SHA256}  nfpm.tar.gz" | sha256sum -c -
+          tar xzf nfpm.tar.gz nfpm
+          sudo install -m 0755 nfpm /usr/local/bin/nfpm
+          rm -f nfpm.tar.gz nfpm
+
+      # The packages are built from the same commit and the same binaries as
+      # the tarball, by the script that lives beside them in the component
+      # repository: a package definition kept here would be a second layout
+      # to keep in step with the units it installs.
+      - name: Build the native packages
+        working-directory: src
+        env:
+          VERSION: ${{ inputs.version }}
+          ARCH: ${{ matrix.arch }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          dist/packaging/build-packages.sh \
+            --version "${VERSION}" \
+            --arch "${ARCH}" \
+            --bin-dir "target/${TARGET}/release" \
+            --ebpf-dir target/bpfel-unknown-none/release \
+            --out-dir .
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ebpfsentinel-release-${{ matrix.arch }}
-          path: ${{ env.TARBALL }}
+          path: |
+            ${{ env.TARBALL }}
+            src/*.deb
+            src/*.rpm
           retention-days: 30
 
   # ── The demo lab, packaged once ───────────────────────────────────

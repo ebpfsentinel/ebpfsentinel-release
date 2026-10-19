@@ -67,6 +67,12 @@ them changed. The manifest is what states which versions belong together, and
    came from travels inside it as an `.env` pinning `EBPFSENTINEL_TAG`. It is
    not in the measurements manifest, which inventories binaries.
 
+   It also builds the native packages from that same commit, a `.deb` and an
+   `.rpm` per architecture, and they ride the same bundle, so they are
+   checksummed and signed with the tarballs rather than beside them. A host
+   that installs with `apt` or `dnf` gets a file it can verify exactly as the
+   tarball is verified.
+
    The build workflows are *called*, not dispatched, so everything happens in a
    single run: artifacts are already in scope, there is nothing to poll for and
    no token with write access to this repository sitting in another repo's
@@ -98,7 +104,15 @@ them changed. The manifest is what states which versions belong together, and
    resolved to at cut time; `issue-measurements` refuses a tag that has moved
    since.
 
-6. **Flip `status` to `stable`** when the release has soaked, in a second PR.
+6. **Publish the package repositories.** Run `publish-package-repository`
+   with the same version. It takes the `.deb` and `.rpm` assets of the
+   published release, checks them against the signed `SHA256SUMS`, and
+   rebuilds the apt and dnf indexes over the whole pool, so previous versions
+   stay installable. It is a separate run because an index covers every
+   version ever published rather than this one. Runbook:
+   [`PACKAGE-REPOSITORY.md`](PACKAGE-REPOSITORY.md).
+
+7. **Flip `status` to `stable`** when the release has soaked, in a second PR.
 
 If one component fails to build, fix it, update its `ref` in the manifest, and
 re-run `cut-release` with `only: <component>` rather than rebuilding the whole
@@ -111,6 +125,9 @@ set.
 | `SIBLING_READ_TOKEN` | repository secret here | a fine-grained PAT with `contents: read` on the five component repositories. `GITHUB_TOKEN` cannot read another repository, and enterprise and dashboard are private. The same name and the same token are used by every other repository that reads a private sibling. |
 | GHCR package access | each package's settings | add `ebpfsentinel-release` under *Manage Actions access* with the **Write** role, for every image and chart. That is what lets this repository's `GITHUB_TOKEN` push them. |
 | `crates-io` environment | repository environments here | holds `CARGO_REGISTRY_TOKEN` for the anomstream publish, and is where a required-reviewer gate goes if you want one. A publish cannot be undone, only yanked. |
+| GitHub Pages on `gh-pages` | this repository's Pages settings | serves the apt and dnf trees. The branch is created by the first `publish-package-repository` run; Pages has to be pointed at it once, or the indexes exist and nothing can fetch them. |
+| `REPOSITORY_SIGNING_KEY` + `REPOSITORY_SIGNING_PASSPHRASE` | repository secrets here | the OpenPGP key that signs the apt and dnf indexes. apt and dnf cannot read a cosign bundle, so an index needs this and nothing else does ([`KEY-MANAGEMENT.md`](KEY-MANAGEMENT.md)). |
+| `REPOSITORY_SIGNING_FINGERPRINT` | repository **variable** here | the fingerprint `publish-package-repository` asserts the imported key against, so a swapped secret fails the run instead of publishing an index every installed host refuses. |
 | `TELEMETRY_ENDPOINT` | repository **variable** here | where the agent's anonymous heartbeat goes. Reaches `cargo` as `EBPFSENTINEL_TELEMETRY_ENDPOINT` in the binaries job and as the `TELEMETRY_ENDPOINT` build argument for the two agent images. |
 
 `TELEMETRY_ENDPOINT` is a variable rather than a secret, deliberately. It is

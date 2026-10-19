@@ -12,6 +12,7 @@ release run here.
 
 - **Cutting a release**: [`docs/RELEASES.md`](docs/RELEASES.md)
 - **Release notes, per component**: [`changelogs/`](changelogs/README.md)
+- **apt and dnf repositories**: [`docs/PACKAGE-REPOSITORY.md`](docs/PACKAGE-REPOSITORY.md)
 - **Consumer enforcement runbook**: [`docs/CONSUMER-ENFORCEMENT.md`](docs/CONSUMER-ENFORCEMENT.md)
 - **Consumer verification**: [`policy/cosign-public.md`](policy/cosign-public.md)
 - **Reporting a vulnerability**: [`SECURITY.md`](SECURITY.md)
@@ -33,6 +34,7 @@ Operational workflows run from here, not from product repos:
 | [`.github/workflows/cut-release.yml`](.github/workflows/cut-release.yml) | build every component at the versions [`releases/<version>.yaml`](releases/TEMPLATE.yaml) declares, then publish the one release |
 | [`.github/workflows/issue-measurements.yml`](.github/workflows/issue-measurements.yml) | dual-sign the release measurements manifest, aggregate changelog + SBOMs, driven by the same manifest |
 | [`.github/workflows/issue-revocations.yml`](.github/workflows/issue-revocations.yml) | publish the dual-signed revocation list |
+| [`.github/workflows/publish-package-repository.yml`](.github/workflows/publish-package-repository.yml) | rebuild and publish the signed apt and dnf repositories over the release's packages ([`docs/PACKAGE-REPOSITORY.md`](docs/PACKAGE-REPOSITORY.md)) |
 | [`.github/workflows/acceptance.yml`](.github/workflows/acceptance.yml) | prove tamper is rejected at every layer |
 | [`.github/workflows/guard.yml`](.github/workflows/guard.yml) | fail the PR when a repo invariant drifts ([`scripts/guard.sh`](scripts/guard.sh)) |
 

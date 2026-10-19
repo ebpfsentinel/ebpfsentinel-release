@@ -1,6 +1,6 @@
 # Key management
 
-eBPFsentinel signs with two independent key pairs plus one keyless identity.
+eBPFsentinel signs with three independent key pairs plus one keyless identity.
 They are separate on purpose: each answers a different question, for a
 different audience, and a compromise of one must not forge the other.
 
@@ -9,6 +9,7 @@ different audience, and a compromise of one must not forge the other.
 | **Release signing** (Ed25519 + ML-DSA-65) | `measurements.json` → `measurements.signed` | "is this the artifact we published?" | `RELEASE_SIGNING_KEY_*` secrets in this repo |
 | **License signing** (Ed25519 + ML-DSA-65) | customer `.lic` files, activation keys | "is this customer entitled to run it?" | private halves offline, never in this repo or any CI secret; public halves in `policy/keys/` |
 | **cosign keyless** (no key) | images, blobs, SBOM attestations | "is this the artifact we published?" (connected sites) | nothing stored - Fulcio short-lived certs |
+| **Repository signing** (OpenPGP, Ed25519) | apt `InRelease` and `Release.gpg`, dnf `repomd.xml.asc`, every `.rpm` in the pool | "is this index the one the publisher wrote?" | `REPOSITORY_SIGNING_KEY` secret in this repo, fingerprint in the `REPOSITORY_SIGNING_FINGERPRINT` variable |
 
 Both key-based pairs are dual-signed: an Ed25519 signature for today and an
 ML-DSA-65 (FIPS 204) signature so a future quantum adversary cannot forge a
@@ -98,6 +99,46 @@ and shipped inside every enterprise release tarball, beside the
 `ebpfsentinel-license` binary that consumes them. Both `build-enterprise.yml`
 and `issue-measurements.yml` fail closed if either file is missing.
 
+## Generating the repository signing key
+
+apt and dnf predate Sigstore and verify an index with OpenPGP: there is no way
+to hand `apt-get update` a cosign bundle. The repository key exists for that
+one job and signs nothing else - not a measurement, not a licence, not an
+image - and nothing it signs is the only evidence of anything, since every
+package it indexes is also in the release's `SHA256SUMS` and carries its own
+cosign bundle.
+
+Generate it on the same offline machine as the others, with no expiry on the
+primary key and a passphrase:
+
+```bash
+gpg --quick-generate-key "eBPFsentinel package repository <release@ebpfsentinel.io>" \
+  ed25519 sign never
+gpg --list-keys --with-colons release@ebpfsentinel.io | awk -F: '/^fpr:/ { print $10; exit }'
+gpg --armor --export-secret-keys <fingerprint> > repository-signing.asc
+```
+
+Then:
+
+1. Load the armored private key as the repository secret
+   `REPOSITORY_SIGNING_KEY` and its passphrase as
+   `REPOSITORY_SIGNING_PASSPHRASE`; keep an offline backup of both.
+2. Set the repository **variable** `REPOSITORY_SIGNING_FINGERPRINT` to the
+   full fingerprint. `publish-package-repository.yml` refuses to run without
+   it and refuses to sign with a key that does not match it, so a swapped
+   secret fails the run rather than publishing an index no installed host
+   accepts.
+3. Publish the fingerprint in
+   [`docs/PACKAGE-REPOSITORY.md`](PACKAGE-REPOSITORY.md), in the installation
+   documentation and in the release notes. A host fetches the public key from
+   the repository it is about to trust, which is unavoidable; the fingerprint
+   published elsewhere is what makes that fetch checkable.
+
+The public half is **not** committed to `policy/keys/`. That directory holds
+raw Ed25519 and ML-DSA-65 public keys and `scripts/guard.sh` checks the length
+of every file in it; an armored OpenPGP key there would fail the guard. It is
+exported by the workflow and published in the repository tree it signs.
+
 ## Rotation
 
 Rotate on a fixed schedule (yearly) and immediately on suspected compromise.
@@ -126,6 +167,17 @@ key in `policy/keys/` under its dated name and in the agent for as long as any
 licence signed with it is still inside its term, and revoke rather than re-sign
 if the old private half is what was compromised.
 
+Rotating the **repository** key is the one rotation with installed hosts on
+the other end: every machine that added the repository holds the old public
+key, and an index signed under a key they do not have stops their updates.
+Generate the new key, add it to the keyring the hosts already trust by
+publishing both keys in `ebpfsentinel.asc` for a full support cycle, swap the
+secret and the fingerprint variable, republish, and only then drop the old key
+from the exported keyring. Announce the new fingerprint everywhere the old one
+was published. On compromise there is no grace period: swap immediately,
+republish, and say so in the release notes, because an attacker holding that
+key can serve a package to a host that trusts it.
+
 The keyless (cosign) identity needs no rotation: certificates are short-lived
 and the trust anchor is the workflow identity, not a key. Changing the repo,
 workflow filename, or tag scheme *is* an identity change and must be treated
@@ -145,3 +197,6 @@ like a rotation - update `policy/verify.sh`, both admission policies, and
   or any other. They are the one pair CI must never be able to reach.
 - Verification code that accepts one of the two signatures when the other is
   missing or malformed.
+- The repository signing key used for anything but an index and the packages
+  in it. It lives in CI, so it is the most reachable key we hold, and a
+  measurement or a licence signed with it would inherit that exposure.
