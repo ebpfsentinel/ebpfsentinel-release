@@ -127,7 +127,17 @@ jobs:
         id: release-keys
         # Assigned first: a substitution inside `echo` would hide its failure.
         run: |
-          pairs="$(bash release/scripts/release-signing-keys.sh release/policy/keys)"
+          pairs="$(bash release/scripts/signing-keys.sh release/policy/keys release-signing)"
+          echo "pairs=${pairs}" >> "$GITHUB_OUTPUT"
+
+      # The content signing public keys, the second family in the same
+      # directory. They verify a content bundle's manifest and nothing else,
+      # and a build without them refuses every bundle rather than applying an
+      # unverified one, so this fails closed the same way.
+      - name: Read the content signing keys
+        id: content-keys
+        run: |
+          pairs="$(bash release/scripts/signing-keys.sh release/policy/keys content-signing)"
           echo "pairs=${pairs}" >> "$GITHUB_OUTPUT"
 
       - name: Build release binaries
@@ -154,6 +164,7 @@ jobs:
             ANOMSTREAM_REF=${{ inputs.anomstream-ref }}
             TELEMETRY_ENDPOINT=${{ vars.TELEMETRY_ENDPOINT }}
             RELEASE_SIGNING_KEYS=${{ steps.release-keys.outputs.pairs }}
+            CONTENT_SIGNING_KEYS=${{ steps.content-keys.outputs.pairs }}
           outputs: type=local,dest=binaries
 
       # The broker the rootless agent asks for its bpffs. Built from its own
@@ -206,8 +217,12 @@ jobs:
           cp -a src/dist/sysctl.d "${STAGING}/"
           # Fail closed. Shipping the tool without the keys leaves a customer
           # holding a licence they can checksum and cannot authenticate, which
-          # is the one check that actually says the file is ours.
-          for key in license-signing.pub license-signing-pq.pub; do
+          # is the one check that actually says the file is ours. The content
+          # pair travels the same way and for the same reason: a bundle arrives
+          # down the portal's wire, and a key published by the system that
+          # served the document settles nothing.
+          for key in license-signing.pub license-signing-pq.pub \
+                     content-signing-ed25519.pub content-signing-mldsa.pub; do
             if [ ! -s "release/policy/keys/${key}" ]; then
               echo "::error::policy/keys/${key} is missing or empty - see docs/KEY-MANAGEMENT.md"
               exit 1
@@ -323,7 +338,14 @@ jobs:
         if: matrix.component == 'agent'
         # Assigned first: a substitution inside `echo` would hide its failure.
         run: |
-          pairs="$(bash release/scripts/release-signing-keys.sh release/policy/keys)"
+          pairs="$(bash release/scripts/signing-keys.sh release/policy/keys release-signing)"
+          echo "pairs=${pairs}" >> "$GITHUB_OUTPUT"
+
+      - name: Read the content signing keys
+        id: content-keys
+        if: matrix.component == 'agent'
+        run: |
+          pairs="$(bash release/scripts/signing-keys.sh release/policy/keys content-signing)"
           echo "pairs=${pairs}" >> "$GITHUB_OUTPUT"
 
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -379,10 +401,10 @@ jobs:
           push: ${{ inputs.push }}
           provenance: false
           sbom: false
-          # The endpoint and the release keys go to the agent only: the warden
-          # brokers eBPF loads, sends no heartbeat and verifies no manifest, so
-          # passing either there would be an argument its Dockerfile does not
-          # declare.
+          # The endpoint and both key families go to the agent only: the
+          # warden brokers eBPF loads, sends no heartbeat, verifies no manifest
+          # and applies no content, so passing any of them there would be an
+          # argument its Dockerfile does not declare.
           build-args: |
             VERSION=${{ inputs.version }}
             OSS_REPO=${{ env.OSS_REPO_URL }}
@@ -391,6 +413,7 @@ jobs:
             ANOMSTREAM_REF=${{ inputs.anomstream-ref }}
             ${{ matrix.component == 'agent' && format('TELEMETRY_ENDPOINT={0}', vars.TELEMETRY_ENDPOINT) || '' }}
             ${{ matrix.component == 'agent' && format('RELEASE_SIGNING_KEYS={0}', steps.release-keys.outputs.pairs) || '' }}
+            ${{ matrix.component == 'agent' && format('CONTENT_SIGNING_KEYS={0}', steps.content-keys.outputs.pairs) || '' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           outputs: type=image,oci-mediatypes=true

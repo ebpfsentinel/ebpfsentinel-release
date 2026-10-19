@@ -1,6 +1,6 @@
 # Key management
 
-eBPFsentinel signs with three independent key pairs plus one keyless identity.
+eBPFsentinel signs with four independent key pairs plus one keyless identity.
 They are separate on purpose: each answers a different question, for a
 different audience, and a compromise of one must not forge the other.
 
@@ -8,10 +8,11 @@ different audience, and a compromise of one must not forge the other.
 |---|---|---|---|
 | **Release signing** (Ed25519 + ML-DSA-65) | `measurements.json` → `measurements.signed` | "is this the artifact we published?" | `RELEASE_SIGNING_KEY_*` secrets in this repo |
 | **License signing** (Ed25519 + ML-DSA-65) | customer `.lic` files, activation keys | "is this customer entitled to run it?" | private halves offline, never in this repo or any CI secret; public halves in `policy/keys/` |
+| **Content signing** (Ed25519 + ML-DSA-65) | `content-manifest.json` → `content-manifest.sig` | "is this the content we published?" | `CONTENT_SIGNING_KEY_*` secrets in the private anchor, which is what cuts a bundle |
 | **cosign keyless** (no key) | images, blobs, SBOM attestations | "is this the artifact we published?" (connected sites) | nothing stored - Fulcio short-lived certs |
 | **Repository signing** (OpenPGP, Ed25519) | apt `InRelease` and `Release.gpg`, dnf `repomd.xml.asc`, every `.rpm` in the pool | "is this index the one the publisher wrote?" | `REPOSITORY_SIGNING_KEY` secret in this repo, fingerprint in the `REPOSITORY_SIGNING_FINGERPRINT` variable |
 
-Both key-based pairs are dual-signed: an Ed25519 signature for today and an
+The three document pairs are dual-signed: an Ed25519 signature for today and an
 ML-DSA-65 (FIPS 204) signature so a future quantum adversary cannot forge a
 manifest or a license retroactively. A verifier must accept only when **both**
 signatures check out.
@@ -52,12 +53,50 @@ Then:
 manifest it signs against those public keys before publishing.
 
 The enterprise agent verifies against the same public keys, compiled in.
-`build-enterprise.yml` reads them through `scripts/release-signing-keys.sh` and
-passes them to the binary and image builds as `RELEASE_SIGNING_KEYS`: the agent
+`build-enterprise.yml` reads them through
+`scripts/signing-keys.sh policy/keys release-signing` and passes them to the
+binary and image builds as `RELEASE_SIGNING_KEYS`: the agent
 checks its measurements manifest and its integrity manifest with them before it
 unlocks a licence, and a build handed none runs the open source feature set
 whatever key it is given. The script fails when either current file is missing,
 so that build never leaves this pipeline.
+
+## Generating the content signing pair
+
+Same tool, same offline machine, a third set of filenames:
+
+```bash
+ebpfsentinel-license keygen \
+  --private-key    content-signing-ed25519.key \
+  --public-key     content-signing-ed25519.pub \
+  --pq-private-key content-signing-mldsa.key \
+  --pq-public-key  content-signing-mldsa.pub
+```
+
+Then:
+
+1. Store the two `.key` files in the org's secret manager and an offline backup.
+2. Load them as `CONTENT_SIGNING_KEY_ED25519` and `CONTENT_SIGNING_KEY_MLDSA` in
+   `ebpfsentinel-private-release`, which is what cuts and signs a bundle. They
+   are not loaded here: this repository publishes the public halves and signs no
+   content.
+3. Commit the two `.pub` files to `policy/keys/` in this repo.
+
+Why a third pair rather than the release one: content is cut whenever a rule is
+written, which is far more often than a release is built, so this key is in use
+every week. A key in weekly use must not be the key that says what a binary is,
+and it must not be the key that mints entitlements. Whoever holds it can make
+an agent match on a pattern of their choosing, which is serious and is not the
+same as being able to claim a modified binary is genuine.
+
+The public halves are published for the same reason the licence ones are: a
+bundle arrives over the portal's wire, and a key that arrived down the same wire
+settles nothing. They are compiled into the enterprise agent through
+`scripts/signing-keys.sh policy/keys content-signing` as `CONTENT_SIGNING_KEYS`,
+shipped in every enterprise release tarball and attached to every
+`measurements/v*` release. A build handed none refuses every bundle rather than
+applying an unverified one, and `build-enterprise.yml` fails closed if either
+file is missing.
 
 ## Generating the license signing pair
 
@@ -167,6 +206,18 @@ key in `policy/keys/` under its dated name and in the agent for as long as any
 licence signed with it is still inside its term, and revoke rather than re-sign
 if the old private half is what was compromised.
 
+Rotating the **content** pair has the same compiled-in constraint as the
+licence one and a shorter rope: an agent already deployed carries the old public
+keys, and a bundle signed under the new pair is refused by it until it is
+upgraded. So the new pair is published and compiled in first, bundles keep being
+signed under the old one until a release carrying the new one is out, and only
+then does the signing switch over. The dated copy of the old pair stays in
+`policy/keys/` for as long as any bundle signed with it may still be imported
+across an air gap, which is longer than it sounds: an enclave takes content in
+on its own schedule. On compromise there is no grace period, because whoever
+holds that key can publish a rule set of their own choosing to every estate that
+fetches: swap the pair, cut a release that carries only the new one, and say so.
+
 Rotating the **repository** key is the one rotation with installed hosts on
 the other end: every machine that added the repository holds the old public
 key, and an index signed under a key they do not have stops their updates.
@@ -188,6 +239,9 @@ like a rotation - update `policy/verify.sh`, both admission policies, and
 
 - A private key committed to any repository, including this one.
 - The same pair signing both licenses and release measurements.
+- The content pair signing anything but a content manifest, or the release or
+  licence pair signing a content manifest. A key used weekly and a key that says
+  what a binary is are two different exposures.
 - A measurements release published without its public keys attached - the
   customer then has an envelope they cannot check.
 - A licence delivered without the public keys being obtainable somewhere the
@@ -195,6 +249,9 @@ like a rotation - update `policy/verify.sh`, both admission policies, and
   the same system, proves nothing about who wrote the file.
 - The license signing private keys loaded as a repository secret, in this repo
   or any other. They are the one pair CI must never be able to reach.
+- The content signing private keys loaded as a secret in this repository. This
+  is the customer's trust anchor and it publishes the public halves; the private
+  ones live in the private anchor, which is what cuts a bundle.
 - Verification code that accepts one of the two signatures when the other is
   missing or malformed.
 - The repository signing key used for anything but an index and the packages

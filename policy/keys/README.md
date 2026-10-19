@@ -4,8 +4,9 @@ The public halves of the two signing pairs. Public by design - this directory
 is how customers obtain the keys that verify what we hand them (and, at
 air-gapped sites, the only trust material they need).
 
-Two pairs, because they answer different questions and a compromise of one must
-not forge the other. See [`../../docs/KEY-MANAGEMENT.md`](../../docs/KEY-MANAGEMENT.md).
+Three pairs, because they answer different questions and a compromise of one
+must not forge the others. See
+[`../../docs/KEY-MANAGEMENT.md`](../../docs/KEY-MANAGEMENT.md).
 
 ## Release signing
 
@@ -27,11 +28,41 @@ Every `measurements/v*` release attaches copies of these files, so a customer
 verifying offline does not need to fetch this repo.
 
 The enterprise agent carries them too. `build-enterprise.yml` reads this pair,
-and every superseded pair still here, through `scripts/release-signing-keys.sh`
-and compiles them into the agent, which verifies its measurements manifest and
-its integrity manifest against them before it unlocks a licence. The script
-fails when either current file is missing, so a release cannot build an agent
-that never unlocks.
+and every superseded pair still here, through
+`scripts/signing-keys.sh policy/keys release-signing` and compiles them into
+the agent, which verifies its measurements manifest and its integrity manifest
+against them before it unlocks a licence. The script fails when either current
+file is missing, so a release cannot build an agent that never unlocks.
+
+## Content signing
+
+| File | Algorithm | Verifies |
+|---|---|---|
+| `content-signing-ed25519.pub` | Ed25519 | `content-manifest.sig` (classical signature) |
+| `content-signing-mldsa.pub` | ML-DSA-65 (FIPS 204) | `content-manifest.sig` (post-quantum signature) |
+
+Both must verify. The envelope is the same three-line document the measurements
+manifest uses, so the same code checks it.
+
+A content bundle carries the detection rules, data patterns, fingerprints,
+provider definitions and models a subscription delivers, and the agent verifies
+the manifest before a single file is applied. A separate pair from the release
+one on purpose: content is cut far more often than a release is, so this key is
+used daily, and the key that is used daily must not be the key that says what a
+binary is.
+
+`build-enterprise.yml` reads this pair through
+`scripts/signing-keys.sh policy/keys content-signing` and compiles it into the
+agent the same way, and the pair ships in every enterprise tarball and is
+attached to every `measurements/v*` release, because a bundle arrives down the
+portal's wire and a key published by the system that served the document
+settles nothing. The portal serves bundles and signs nothing.
+
+```bash
+ebpfsentinel-enterprise-agent content import \
+  --bundle ./ebpfsentinel-content-142 \
+  --verify-only
+```
 
 ## License signing
 
@@ -85,8 +116,9 @@ schedule are in
 [`../../docs/KEY-MANAGEMENT.md`](../../docs/KEY-MANAGEMENT.md).
 
 Superseded keys stay in this directory under a dated name
-(`release-signing-ed25519.<year>.pub`, `license-signing.<year>.pub`) so
-documents signed before a rotation remain verifiable.
+(`release-signing-ed25519.<year>.pub`, `content-signing-ed25519.<year>.pub`,
+`license-signing.<year>.pub`) so documents signed before a rotation remain
+verifiable.
 
 `scripts/guard.sh` decodes every `.pub` here and checks its length against the
 algorithm the filename declares, so a truncated file or a pair committed under

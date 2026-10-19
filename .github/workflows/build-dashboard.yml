@@ -83,7 +83,7 @@ jobs:
         id: release-keys
         # Assigned first: a substitution inside `echo` would hide its failure.
         run: |
-          pairs="$(bash release/scripts/release-signing-keys.sh release/policy/keys)"
+          pairs="$(bash release/scripts/signing-keys.sh release/policy/keys release-signing)"
           echo "pairs=${pairs}" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
