@@ -204,6 +204,7 @@ First public release of the enterprise layer. Everything below is new relative t
 
 ### Security
 
+- Hybrid post-quantum key exchange (`X25519MLKEM768`) is the default on the federation mTLS listener and on every outbound TLS the layer opens - high-availability replication, peer registration, syslog and SIEM export - following the agent's own `agent.tls.pq_mode`, with the classical groups kept behind it. The federation listener enforces `require` rather than inheriting the permissive outbound ordering; the TLS inspection proxy deliberately keeps the permissive set, because it stands between workloads and servers it does not choose
 - Migrated off unmaintained dependencies (`rustls-pemfile`, `bincode`)
 - `rand` bumped to 0.9 and `SigningKey::from_bytes` adopted, clearing RUSTSEC-2026-0097
 - CA private key and leaf key material zeroized on drop

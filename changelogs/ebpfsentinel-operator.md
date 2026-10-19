@@ -39,4 +39,5 @@ First public release of the Kubernetes operator.
 
 ### Security
 
+- `spec.tls.pqMode` states the posture it reconciles: the default, `prefer`, offers the hybrid `X25519MLKEM768` key exchange ahead of the classical groups on the agent it renders, and `require` offers the hybrid group alone, so a client that cannot negotiate it fails the handshake rather than falling back. The field, its default and the agents it renders are unchanged; what changed is that the custom resource says which key exchange the reconciled agent will offer
 - `quinn-proto` bumped to 0.11.16 and `anyhow` to 1.0.103, clearing RUSTSEC-2026-0185 and RUSTSEC-2026-0190

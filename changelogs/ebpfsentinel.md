@@ -28,6 +28,11 @@ Within each release, entries are grouped **Added → Changed → Fixed → Secur
 #### Ring-buffer observability
 - **`ringbuf_events_total{source}`**, **`ringbuf_events_dropped_total{source,reason}`** and **`ringbuf_latency_seconds{source}`**: every record userspace drains, discards or is late to pick up, per producing program. Ring pressure was previously invisible between the kernel counter and the pipeline
 
+#### Loader observability
+- **`ebpfsentinel_ebpf_link_handovers`** and **`ebpfsentinel_ebpf_link_handover_fallbacks`**: hooks whose program was swapped on a live link, and hooks the kernel made the agent detach and attach again instead. The second figure is the number of reloads during which an interface carried nothing, so it is published rather than only logged, and each fallback names its program in the log
+- **`ebpfsentinel_ebpf_frozen_maps`** and **`ebpfsentinel_ebpf_map_freeze_refusals`**: maps made read-only behind their single write at load, and maps the kernel refused to freeze. A refusal costs the protection and not the datapath, which is why it is a counter rather than a failure
+- **`ebpfsentinel_threatintel_reload_duration_seconds`** and **`ebpfsentinel_threatintel_reload_indicators`**: how long a full reload of the indicator sets into the eBPF maps took, and how many indicators it wrote. The datapath matches against a partly written table for the whole of that reload, so the two together say whether a feed has outgrown the host it is loaded on
+
 ### Changed
 
 #### Control API, shut by default
@@ -46,6 +51,9 @@ Within each release, entries are grouped **Added → Changed → Fixed → Secur
 #### Datapath
 - **DNS ring records are tiered.** A 192-byte record carries query-shaped traffic where a 576-byte record was reserved before, so the 256 KB DNS ring holds 1365 in-flight records instead of 455
 - **Interface indices are read through the kernel context accessor** at all nine sites that previously read the raw field behind `unsafe`
+- **A program is replaced without a window.** Where the kernel supports it, a reload swaps the program on the existing link instead of detaching and attaching again, so no packet crosses an interface that carries nothing. Where the attach type has no replacement path the old sequence is the fallback, counted and logged with the program named rather than taken silently
+- **Maps written once at load are frozen.** A map holding a reading of the running kernel is made read-only behind that single write, so a later write is an error at the point of the bug instead of a datapath that behaves differently from its configuration. The maps the kernel refuses to freeze stay writable and are counted
+- **Threat-intelligence indicators load through the batched map syscalls** in bounded chunks, so a list of millions no longer holds the control plane for the length of a reload, and the duration and size of each full reload are reported
 - **XDP re-attach is idempotent.** An agent restart that finds its own program already on the interface readopts it instead of creating a second link. Pinned maps are still wiped at startup - the kernel offers no way to ask whether a live process still holds a pin - but the wipe now states its reason in the log
 
 ### Fixed
@@ -62,6 +70,8 @@ Within each release, entries are grouped **Added → Changed → Fixed → Secur
 ### Security
 
 - **An unconfigured agent no longer serves an open control API.** Authentication is on by default and a key exists from the first start, so an agent whose listener is reachable - a bind widened for a scrape, a container port published, a pod on a flat network - no longer hands firewall rules, captures and configuration to whoever asks. Upgrading a deployment that configured no authentication changes its behaviour; see the upgrade note in the documentation
+- **Hybrid post-quantum key exchange is the default on every TLS surface, inbound and outbound.** `X25519MLKEM768` is offered ahead of `X25519` and `secp256r1` on the REST and gRPC listeners and on every client the agent dials, so a transcript captured today is not readable by a later quantum adversary. The classical groups stay behind it, so no client has to change; `pq_mode: require` offers the hybrid group alone and `pq_mode: disable` pins the previous behaviour
+- **The gRPC listener now enforces `pq_mode: require` instead of silently ignoring it.** Its TLS was built from the process-wide provider, which carries the permissive outbound ordering, so a listener configured to require the hybrid group still completed classical handshakes. The listener terminates TLS itself and builds its key exchange from the configured mode, the way the REST listener always did
 - **Cross-connection payload disclosure in L7 events (`tc-ids`).** The ring-buffer reservation was not zeroed before use, so a failed payload read submitted whatever the ring last held, under this packet's header and at this packet's length - userspace was handed another connection's bytes as if they belonged to this one. The reservation is now discarded on a failed read and the failure is counted
 
 ## [2026.6.1] - 2026-06-16
