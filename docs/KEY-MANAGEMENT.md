@@ -9,6 +9,7 @@ different audience, and a compromise of one must not forge the other.
 | **Release signing** (Ed25519 + ML-DSA-65) | `measurements.json` → `measurements.signed` | "is this the artifact we published?" | `RELEASE_SIGNING_KEY_*` secrets in this repo |
 | **License signing** (Ed25519 + ML-DSA-65) | customer `.lic` files, activation keys | "is this customer entitled to run it?" | private halves offline, never in this repo or any CI secret; public halves in `policy/keys/` |
 | **Content signing** (Ed25519 + ML-DSA-65) | `content-manifest.json` → `content-manifest.sig` | "is this the content we published?" | `CONTENT_SIGNING_KEY_*` secrets in the private anchor, which is what cuts a bundle |
+| **Content keyless** (no key) | the same `content-manifest.json` → `content-manifest.cosign.bundle` | "who published this content?" | nothing stored - Fulcio short-lived certs, identity pinned to the cutting workflow |
 | **cosign keyless** (no key) | images, blobs, SBOM attestations | "is this the artifact we published?" (connected sites) | nothing stored - Fulcio short-lived certs |
 | **Repository signing** (OpenPGP, Ed25519) | apt `InRelease` and `Release.gpg`, dnf `repomd.xml.asc`, every `.rpm` in the pool | "is this index the one the publisher wrote?" | `REPOSITORY_SIGNING_KEY` secret in this repo, fingerprint in the `REPOSITORY_SIGNING_FINGERPRINT` variable |
 
@@ -97,6 +98,18 @@ shipped in every enterprise release tarball and attached to every
 `measurements/v*` release. A build handed none refuses every bundle rather than
 applying an unverified one, and `build-enterprise.yml` fails closed if either
 file is missing.
+
+A content manifest also carries a keyless cosign bundle over the same bytes, and
+that half is **required rather than additional**: the cutting workflow verifies
+it against its own pinned identity and refuses to package a bundle missing
+either half, the portal serves no shelf that holds a manifest without it, and an
+agent refuses a bundle whose keyless half is absent or is not a cosign bundle.
+The agent does not verify that half - a Fulcio chain, a signed certificate
+timestamp and a Rekor entry need a network and a trusted clock an enclave does
+not have - so the pair this one does not check is kept on disk for a person to
+check with cosign. The two answer different questions: this pair says the
+content was signed with a key an agent carries, and the keyless half says who
+asked for the signature.
 
 ## Generating the license signing pair
 
@@ -217,6 +230,9 @@ across an air gap, which is longer than it sounds: an enclave takes content in
 on its own schedule. On compromise there is no grace period, because whoever
 holds that key can publish a rule set of their own choosing to every estate that
 fetches: swap the pair, cut a release that carries only the new one, and say so.
+The keyless half rotates by itself and needs none of this, which is also what it
+is worth: it names the workflow rather than a key, so the identity survives every
+rotation of this pair and is the thing a reader can still check a year later.
 
 Rotating the **repository** key is the one rotation with installed hosts on
 the other end: every machine that added the repository holds the old public
@@ -242,6 +258,9 @@ like a rotation - update `policy/verify.sh`, both admission policies, and
 - The content pair signing anything but a content manifest, or the release or
   licence pair signing a content manifest. A key used weekly and a key that says
   what a binary is are two different exposures.
+- A content bundle published with one half of its signature. Both are required,
+  the cutting workflow fails on an absent half, and every reader of a bundle
+  refuses one.
 - A measurements release published without its public keys attached - the
   customer then has an envelope they cannot check.
 - A licence delivered without the public keys being obtainable somewhere the
@@ -252,6 +271,9 @@ like a rotation - update `policy/verify.sh`, both admission policies, and
 - The content signing private keys loaded as a secret in this repository. This
   is the customer's trust anchor and it publishes the public halves; the private
   ones live in the private anchor, which is what cuts a bundle.
+- A reader treating the keyless half as the only signature, or as an optional
+  extra. Dropping it leaves content nobody can trace to a workflow; relying on
+  it alone leaves an enclave with nothing it can check at all.
 - Verification code that accepts one of the two signatures when the other is
   missing or malformed.
 - The repository signing key used for anything but an index and the packages
