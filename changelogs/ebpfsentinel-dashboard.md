@@ -95,3 +95,4 @@ First public release of the dashboard. Entries describe the product as shipped; 
 - CSP `connect-src` scoped to self plus the OIDC issuer
 - `/metrics` requires bearer authentication
 - SSE malformed events are counted, never echoed back with their payload
+- The in-process TLS listener runs on aws-lc-rs and offers the `X25519MLKEM768` hybrid key exchange by default, matching the agent. `server.tls.pq_mode` takes `prefer`, `require` or `disable`; `require` offers the hybrid group alone and closes TLS 1.2 with it, while outbound calls to agents, the identity provider and ClickHouse keep a classical fallback. A certificate hot reload rebuilds the listener under the same policy
