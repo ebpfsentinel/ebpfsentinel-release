@@ -226,6 +226,23 @@ if python3 scripts/emit-release-index.py > /dev/null; then
 else
   bad "release index does not build"
 fi
+# The index sorts each component's notes into security, features and fixes,
+# and refuses a heading it has no group for. Read the unreleased notes as if
+# they were being declared now, so that heading fails this PR rather than the
+# release that renames the section.
+notes_tmp="$(mktemp -d)"
+mkdir -p "$notes_tmp/releases" "$notes_tmp/changelogs"
+for log in changelogs/*.md; do
+  [ "$(basename "$log")" = "README.md" ] && continue
+  sed 's/^## \[Unreleased\].*/## [2026.6.1] - 2026-06-30/' "$log" > "$notes_tmp/changelogs/$(basename "$log")"
+done
+cp releases/TEMPLATE.yaml "$notes_tmp/releases/2026.6.1.yaml"
+if python3 scripts/emit-release-index.py --releases-dir "$notes_tmp/releases" --changelog-dir "$notes_tmp/changelogs" > /dev/null; then
+  ok "unreleased notes sort into the index"
+else
+  bad "unreleased notes carry a heading the index cannot sort"
+fi
+rm -rf "$notes_tmp"
 if [ -f releases/TEMPLATE.yaml ]; then
   # The template is what everyone copies; a broken one propagates.
   if python3 -c "import yaml,sys; yaml.safe_load(open('releases/TEMPLATE.yaml'))" 2>/dev/null; then

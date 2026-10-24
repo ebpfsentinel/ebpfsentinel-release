@@ -20,12 +20,22 @@ of inventing one.
 Crate-only components are left out: a library is resolved by a dependent's
 `cargo build` from the registry, and nobody downloads it from a portal.
 
+Each component also carries the notes of its version, lifted from
+`changelogs/<name>.md` by the same reader `aggregate-changelog.py` uses and
+sorted into what a customer weighs before an upgrade: security, features and
+fixes. A group heading nobody mapped fails the index rather than dropping its
+entries, and the notes go out as plain text, so the portal renders no markdown
+it was handed. The release's own `breaking_changes` travel beside them as its
+upgrade notes, which is the one thing a reader must not miss between two
+versions.
+
 Exit 0 = written, 1 = a manifest or a checksum file is wrong.
 """
 
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import re
 import sys
@@ -49,6 +59,38 @@ LAB = "ebpfsentinel-demo.tar.gz"
 LAB_COMPONENT = "ebpfsentinel"
 
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
+
+# Where a Keep a Changelog group lands. Matched on the heading's first word,
+# so `### Added - \`crate\`` sorts like `### Added`.
+GROUPS = {
+    "Added": "features",
+    "Changed": "features",
+    "Deprecated": "features",
+    "Removed": "features",
+    "Performance": "features",
+    "Fixed": "fixes",
+    "Security": "security",
+}
+
+INLINE = (
+    (re.compile(r"\[([^\]]+)\]\([^)]*\)"), r"\1"),
+    (re.compile(r"\*\*([^*]+)\*\*"), r"\1"),
+    (re.compile(r"`([^`]+)`"), r"\1"),
+)
+
+
+def _changelog_reader():
+    """The section reader the aggregated changelog is built with, not a copy of it."""
+    path = Path(__file__).with_name("aggregate-changelog.py")
+    spec = importlib.util.spec_from_file_location("aggregate_changelog", path)
+    if spec is None or spec.loader is None:
+        raise IndexError_(f"{path}: cannot be loaded")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.section
+
+
+section = _changelog_reader()
 
 
 class IndexError_(Exception):
@@ -96,6 +138,59 @@ def files_of(component: dict) -> list[str]:
     return names
 
 
+def plain_text(markdown: str) -> str:
+    """One line a screen prints as text: links, emphasis and code marks removed."""
+    text = " ".join(markdown.split())
+    for pattern, replacement in INLINE:
+        text = pattern.sub(replacement, text)
+    return text
+
+
+def notes(body: str, where: str) -> dict[str, list[dict]]:
+    """A changelog section, as entries sorted by what a reader weighs them for."""
+    grouped: dict[str, list[dict]] = {"security": [], "features": [], "fixes": []}
+    group: str | None = None
+    topic: str | None = None
+    current: list[str] | None = None
+
+    def close() -> None:
+        if current is not None and group is not None:
+            grouped[group].append({"topic": topic, "text": plain_text(" ".join(current))})
+
+    for line in body.splitlines():
+        if line.startswith("### "):
+            close()
+            current = None
+            word = line[4:].split()[0] if line[4:].split() else ""
+            if word not in GROUPS:
+                raise IndexError_(f"{where}: no group for the heading {line.strip()!r}")
+            group, topic = GROUPS[word], None
+        elif line.startswith("#### "):
+            close()
+            current = None
+            topic = plain_text(line[5:])
+        elif line.startswith("- "):
+            close()
+            if group is None:
+                raise IndexError_(f"{where}: an entry sits under no group")
+            current = [line[2:]]
+        elif line.strip() and current is not None and line[:1].isspace():
+            current.append(line.strip())
+        elif line.strip():
+            close()
+            current = None
+    close()
+    return grouped
+
+
+def changes(changelog_dir: Path, name: str, version: str) -> dict[str, list[dict]]:
+    path = changelog_dir / f"{name}.md"
+    body = section(path.read_text(), version) if path.is_file() else None
+    if body is None:
+        raise IndexError_(f"{path}: no section for {version}, which a manifest declares")
+    return notes(body, f"{path} [{version}]")
+
+
 def checksum(sums: dict[str, str] | None, name: str, where: Path) -> str | None:
     if sums is None:
         return None
@@ -104,7 +199,7 @@ def checksum(sums: dict[str, str] | None, name: str, where: Path) -> str | None:
     return sums[name]
 
 
-def entry(manifest_path: Path) -> dict | None:
+def entry(manifest_path: Path, changelog_dir: Path) -> dict | None:
     manifest = yaml.safe_load(manifest_path.read_text())
     if manifest.get("status") == "yanked":
         return None
@@ -129,6 +224,7 @@ def entry(manifest_path: Path) -> dict | None:
                     {"name": name, "sha256": checksum(sums, name, sums_path)}
                     for name in names
                 ],
+                "changes": changes(changelog_dir, component["name"], str(component["version"])),
             }
         )
 
@@ -139,16 +235,17 @@ def entry(manifest_path: Path) -> dict | None:
         "status": manifest["status"],
         "kernel_min": str(compatibility.get("kernel_min", "")),
         "kubernetes": str(compatibility.get("kubernetes", "")),
+        "breaking_changes": [plain_text(str(item)) for item in manifest.get("breaking_changes") or []],
         "components": components,
     }
 
 
-def build(releases_dir: Path) -> dict:
+def build(releases_dir: Path, changelog_dir: Path) -> dict:
     releases = []
     for path in sorted(releases_dir.glob("*.yaml")):
         if path.name == "TEMPLATE.yaml":
             continue
-        listed = entry(path)
+        listed = entry(path, changelog_dir)
         if listed is not None:
             releases.append(listed)
     for sums_path in releases_dir.glob("*.sums"):
@@ -161,10 +258,11 @@ def build(releases_dir: Path) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--releases-dir", type=Path, default=Path(__file__).parent.parent / "releases")
+    parser.add_argument("--changelog-dir", type=Path, default=Path(__file__).parent.parent / "changelogs")
     parser.add_argument("--out", type=Path)
     args = parser.parse_args()
     try:
-        index = build(args.releases_dir)
+        index = build(args.releases_dir, args.changelog_dir)
     except (IndexError_, KeyError, ValueError) as error:
         print(f"emit-release-index: {error}", file=sys.stderr)
         return 1

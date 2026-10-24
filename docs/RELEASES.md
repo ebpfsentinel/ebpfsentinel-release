@@ -136,7 +136,14 @@ them changed. The manifest is what states which versions belong together, and
    every asset and the checksum it carries. The portal reproduces them beside
    a link to the asset here and hosts no copy, so a release without its
    `.sums` file is still shown, with each checksum left to the signed file.
-   A yanked manifest drops out of the index.
+   A yanked manifest drops out of the index. Each component also carries the
+   notes of its version from `changelogs/<name>.md`, sorted into security,
+   features and fixes, and the release carries its `breaking_changes` as
+   upgrade notes: the portal shows a customer the span between the version
+   their agents report and the recommended release, so a breaking change left
+   out of the manifest is one nobody upgrading is told about. A changelog
+   heading the index has no group for fails `guard.sh` on the pull request
+   that adds it.
 
 If one component fails to build, fix it, update its `ref` in the manifest, and
 re-run `cut-release` with `only: <component>` rather than rebuilding the whole
