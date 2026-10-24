@@ -113,6 +113,30 @@ them changed. The manifest is what states which versions belong together, and
    [`PACKAGE-REPOSITORY.md`](PACKAGE-REPOSITORY.md).
 
 7. **Flip `status` to `stable`** when the release has soaked, in a second PR.
+   The same PR commits `releases/<version>.sums`, every `<bundle>-SHA256SUMS`
+   of the published release concatenated after its signature has been
+   checked:
+
+   ```bash
+   for f in ebpfsentinel enterprise; do
+     gh release download "v$REL" -p "$f-SHA256SUMS*"
+     cosign verify-blob --certificate "$f-SHA256SUMS.crt" \
+       --signature "$f-SHA256SUMS.sig" \
+       --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+       --certificate-identity-regexp '^https://github[.]com/ebpfsentinel/ebpfsentinel-release/[.]github/workflows/sign-blob[.]yml@refs/tags/v.*$' \
+       --certificate-github-workflow-repository ebpfsentinel/ebpfsentinel-release \
+       "$f-SHA256SUMS"
+   done
+   cat ebpfsentinel-SHA256SUMS enterprise-SHA256SUMS > "releases/$REL.sums"
+   ./scripts/emit-release-index.py > /dev/null
+   ```
+
+   `scripts/emit-release-index.py` turns the manifests and those files into
+   the index the customer portal vendors: each listed release, the name of
+   every asset and the checksum it carries. The portal reproduces them beside
+   a link to the asset here and hosts no copy, so a release without its
+   `.sums` file is still shown, with each checksum left to the signed file.
+   A yanked manifest drops out of the index.
 
 If one component fails to build, fix it, update its `ref` in the manifest, and
 re-run `cut-release` with `only: <component>` rather than rebuilding the whole

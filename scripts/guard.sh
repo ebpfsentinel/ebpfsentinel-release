@@ -219,6 +219,13 @@ if [ -n "$rel_manifests" ]; then
 else
   echo "  SKIP: no release manifests declared yet"
 fi
+# The portal vendors the index this writes, so a manifest or a committed
+# checksum file it cannot read is a release no customer is shown.
+if python3 scripts/emit-release-index.py > /dev/null; then
+  ok "release index builds"
+else
+  bad "release index does not build"
+fi
 if [ -f releases/TEMPLATE.yaml ]; then
   # The template is what everyone copies; a broken one propagates.
   if python3 -c "import yaml,sys; yaml.safe_load(open('releases/TEMPLATE.yaml'))" 2>/dev/null; then
