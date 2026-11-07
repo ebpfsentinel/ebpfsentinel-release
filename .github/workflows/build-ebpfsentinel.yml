@@ -261,6 +261,21 @@ jobs:
             --ebpf-dir target/bpfel-unknown-none/release \
             --out-dir .
 
+      # The same binaries and objects, packaged twice more and driven through
+      # install, upgrade over an operator's configuration, removal and purge
+      # on Ubuntu and Fedora. --require-static fails the leg if the agent
+      # links a library, which the packages do not declare. amd64 only: the
+      # containers run the binaries.
+      - name: Install, upgrade, remove and purge the packages
+        if: matrix.arch == 'amd64'
+        working-directory: src
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          dist/packaging/test-packages.sh --require-static \
+            --bin-dir "target/${TARGET}/release" \
+            --ebpf-dir target/bpfel-unknown-none/release
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ebpfsentinel-release-${{ matrix.arch }}
