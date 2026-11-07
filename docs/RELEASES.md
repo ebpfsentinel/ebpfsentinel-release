@@ -83,6 +83,15 @@ them changed. The manifest is what states which versions belong together, and
    tag or an image outside this release. The systemd tarball does not carry
    the profile: it applies to containers only.
 
+   `build-enterprise` puts the same pair inside each enterprise tarball,
+   `compose.yaml` naming the enterprise images and the profile, beside the
+   configuration they mount, so an unpacked tarball runs as it is. The
+   enterprise profile is checked against the agent repository's at the
+   commit the enterprise image builds on, with the same script, and the build
+   fails if either file is missing. They stay inside the tarball rather than
+   beside it, because the agent's two asset names are already taken in the
+   release.
+
    It also builds the native packages from that same commit, a `.deb` and an
    `.rpm` per architecture, and they ride the same bundle, so they are
    checksummed and signed with the tarballs rather than beside them. A host

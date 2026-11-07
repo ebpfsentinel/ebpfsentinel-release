@@ -99,6 +99,19 @@ jobs:
         with:
           path: release
 
+      # The agent repository at the commit the enterprise image builds on, for
+      # one file: the seccomp profile. The enterprise tree carries its own copy
+      # so its compose file works from an unpacked tarball, and that copy must
+      # stay the agent's byte for byte, or the enterprise container runs under
+      # a profile nobody reviewed with the agent that makes the calls.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ebpfsentinel/ebpfsentinel
+          ref: ${{ inputs.oss-ref }}
+          path: oss
+          sparse-checkout: dist/seccomp
+          token: ${{ secrets.SIBLING_READ_TOKEN || github.token }}
+
       # The runner ships ~14 GB free and this build compiles the workspace, ONNX
       # Runtime and the kernel programs on it. Dropping the preinstalled toolchains this build never
       # touches buys the ~25 GB that keeps it off `No space left on device`.
@@ -202,8 +215,7 @@ jobs:
           # The layout is the one `dist/install.sh` reads: the kernel programs
           # under `ebpf/`, the default configuration, both systemd units, and
           # the AppArmor profile and sysctl drop-in it installs on hosts that
-          # gate unprivileged user namespaces. The seccomp profile stays out:
-          # it applies to the container deployment, not to a systemd unit.
+          # gate unprivileged user namespaces.
           if [ -z "$(ls -A binaries/ebpf)" ]; then
             echo "::error::the agent build exported no kernel programs"
             exit 1
@@ -242,6 +254,28 @@ jobs:
             fi
             install -m 0644 "src/${eula}" "${STAGING}/"
           done
+          # The container deployment runs from the same unpacked directory:
+          # compose.yaml names the published images, the configuration above
+          # and the seccomp profile beside it, all by relative path, so a
+          # Docker host needs nothing from a source checkout. Fail closed on
+          # either file, as on the keys and the agreements.
+          for f in src/dist/compose.yaml src/dist/seccomp/ebpfsentinel-agent.json; do
+            if [ ! -f "$f" ] || [ -L "$f" ]; then
+              echo "::error::${f#src/} is missing from the enterprise tree, or is a link: the tarball cannot ship the container deployment without it"
+              exit 1
+            fi
+          done
+          # Stamp this release's version over the 0.0.0-dev placeholder, so the
+          # tarball of release N runs the images of release N.
+          sed -E 's#^([[:space:]]*image:[[:space:]]*ghcr\.io/ebpfsentinel/[a-z-]+):0\.0\.0-dev[[:space:]]*$#\1:'"${VERSION}"'#' \
+            src/dist/compose.yaml > "${STAGING}/compose.yaml"
+          chmod 0644 "${STAGING}/compose.yaml"
+          install -m 0644 src/dist/seccomp/ebpfsentinel-agent.json "${STAGING}/"
+          # The profile is held to the agent repository's copy, byte for byte,
+          # and the compose file to the shape a standalone directory needs.
+          bash release/scripts/check-container-assets.sh "${STAGING}" \
+            oss/dist/seccomp/ebpfsentinel-agent.json "${VERSION}" \
+            ghcr.io/ebpfsentinel/ebpfsentinel-enterprise
           tar czf "${STAGING}.tar.gz" "${STAGING}"
           echo "TARBALL=${STAGING}.tar.gz" >> "$GITHUB_ENV"
 
