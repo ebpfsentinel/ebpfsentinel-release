@@ -51,7 +51,7 @@ Within each release, entries are grouped **Added → Changed → Fixed → Secur
 - **Chart**: `auth.existingSecret` and `auth.secretKey` mount a key shared by every pod, `metrics.authRequired` gates the scrape and makes the ServiceMonitor present the Secret, and the chart refuses to render a gated scrape with no Secret named. Without a Secret each pod draws its own key
 
 #### eBPF toolchain
-- **aya 0.14.0, aya-obj 0.3.0, aya-ebpf 0.2.1**. `ebpf-common` pinned aya directly instead of through the workspace, so the dependency graph carried two aya versions and every `Pod` implementation targeted the older trait; the pin is now unified
+- **aya 0.16.0, aya-obj 0.6.0, aya-ebpf 0.3.0**. `ebpf-common` pinned aya directly instead of through the workspace, so the dependency graph carried two aya versions and every `Pod` implementation targeted the older trait; the pin is now unified
 - **`aya-build`, `aya-log` and `aya-log-ebpf` removed.** The log call sites were `#[cfg(debug_assertions)]` and kernel objects are built in release, so the shipped program bytes are byte-identical
 - **All map declarations migrated to BTF map definitions** across every kernel object. The legacy `maps` ELF section is gone; loading now goes through the BTF `.maps` section exclusively
 
