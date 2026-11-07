@@ -70,6 +70,19 @@ them changed. The manifest is what states which versions belong together, and
    directory. It is not in the measurements manifest, which inventories
    binaries.
 
+   The Docker deployment ships the same way, as two standalone files in that
+   bundle: `compose.yaml`, which runs the published agent and warden images,
+   and `ebpfsentinel-agent.json`, the agent's seccomp profile, which the agent
+   cannot run without since it holds no capability. Both names carry no
+   version, so a reader saves them side by side exactly as the compose file
+   names them; the source names the images at `0.0.0-dev` and the build stamps
+   the release version over it, so a file from release N runs release N.
+   `scripts/check-container-assets.sh` fails the build if the profile is not
+   the agent repository's `dist/seccomp` copy byte for byte, or if the compose
+   file names a build context, a path outside its directory, the placeholder
+   tag or an image outside this release. The systemd tarball does not carry
+   the profile: it applies to containers only.
+
    It also builds the native packages from that same commit, a `.deb` and an
    `.rpm` per architecture, and they ride the same bundle, so they are
    checksummed and signed with the tarballs rather than beside them. A host

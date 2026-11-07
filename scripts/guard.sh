@@ -356,6 +356,66 @@ print(f"  PASS: {len(files)} tracked files carry no typographic dash")
 DASHPY
 [ $? -eq 0 ] || fail=1
 
+# ---------------------------------------------------------------------------
+# The container deployment a release ships is held to its shape by
+# check-container-assets.sh, which only ever runs inside a release build. Prove
+# here, on every push, that the check still accepts a good directory and still
+# refuses each way a bad one can reach a reader.
+echo "[12] the container asset check accepts a good deployment and refuses bad ones"
+cat_check="scripts/check-container-assets.sh"
+work="$(mktemp -d)"
+printf '{"defaultAction":"SCMP_ACT_ERRNO","syscalls":[]}\n' > "${work}/reference.json"
+write_good() {
+  rm -rf "${work}/d"
+  mkdir -p "${work}/d"
+  cp "${work}/reference.json" "${work}/d/ebpfsentinel-agent.json"
+  cat > "${work}/d/compose.yaml" <<'YAML'
+services:
+  warden:
+    image: ghcr.io/ebpfsentinel/ebpfsentinel-warden:9.9.9
+  agent:
+    image: ghcr.io/ebpfsentinel/ebpfsentinel:9.9.9
+    security_opt:
+      - seccomp=./ebpfsentinel-agent.json
+    volumes:
+      - ./ebpfsentinel.yaml:/etc/ebpfsentinel/config.yaml
+YAML
+  touch "${work}/d/ebpfsentinel.yaml"
+}
+expect_refused() {
+  if bash "$cat_check" "${work}/d" "${work}/reference.json" 9.9.9 >/dev/null 2>&1; then
+    bad "check-container-assets.sh accepted $1"
+  else
+    ok "refuses $1"
+  fi
+}
+write_good
+if bash "$cat_check" "${work}/d" "${work}/reference.json" 9.9.9 >/dev/null 2>&1; then
+  ok "accepts a stamped compose.yaml beside the reference profile"
+else
+  bad "check-container-assets.sh refused a good deployment:"
+  bash "$cat_check" "${work}/d" "${work}/reference.json" 9.9.9 2>&1 | sed 's/^/    /'
+fi
+write_good; sed -i 's|^  agent:|  agent:\n    build: .|' "${work}/d/compose.yaml"
+expect_refused "a build context"
+write_good; sed -i 's|- ./ebpfsentinel.yaml:|- ../ebpfsentinel.yaml:|' "${work}/d/compose.yaml"
+expect_refused "a path outside the directory"
+write_good; sed -i 's|seccomp=./ebpfsentinel-agent.json|seccomp=./dist/seccomp/ebpfsentinel-agent.json|' "${work}/d/compose.yaml"
+expect_refused "a profile path other than ./ebpfsentinel-agent.json"
+write_good; sed -i 's|:9\.9\.9$|:0.0.0-dev|' "${work}/d/compose.yaml"
+expect_refused "the unstamped 0.0.0-dev tag"
+write_good; sed -i 's|ghcr.io/ebpfsentinel/ebpfsentinel:9.9.9|docker.io/library/busybox:9.9.9|' "${work}/d/compose.yaml"
+expect_refused "an image outside the release"
+write_good; printf ' ' >> "${work}/d/ebpfsentinel-agent.json"
+expect_refused "a profile differing from the reference by one byte"
+write_good; rm "${work}/d/ebpfsentinel-agent.json"
+expect_refused "a missing profile"
+write_good; rm "${work}/d/compose.yaml"
+expect_refused "a missing compose.yaml"
+write_good; rm "${work}/d/ebpfsentinel-agent.json"; ln -s ../reference.json "${work}/d/ebpfsentinel-agent.json"
+expect_refused "a symlinked profile"
+rm -rf "$work"
+
 echo
 if [ "$fail" -eq 0 ]; then
   echo "guard: OK"

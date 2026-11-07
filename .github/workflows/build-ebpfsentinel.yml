@@ -353,10 +353,71 @@ jobs:
           path: src/ebpfsentinel-demo.tar.gz
           retention-days: 30
 
+  # ── The container deployment, two standalone files ────────────────
+  # A Docker host runs the published images and needs two files beside them:
+  # the compose file and the agent's seccomp profile, which the agent cannot
+  # run without since it holds no capability and the Docker default profile
+  # refuses unshare, mount and bpf to such a process. Both ship as release
+  # assets in their own right, signed in the blob bundle and listed in
+  # SHA256SUMS like every other blob, so a reader downloads and verifies them
+  # rather than cloning the agent repository to reach dist/seccomp. The
+  # systemd tarball does not carry the profile: it applies to containers only.
+  #
+  # The names carry no version, as the lab's does not: a reader saves them
+  # side by side under exactly the names the compose file uses, and the
+  # release they came from is in the signed SHA256SUMS.
+  container:
+    name: Package the container deployment
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ebpfsentinel/ebpfsentinel
+          ref: ${{ inputs.ref }}
+          path: src
+          token: ${{ secrets.SIBLING_READ_TOKEN || github.token }}
+
+      # This repository, for the check the two files are held to.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: release
+
+      - name: Stage compose.yaml and the seccomp profile
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          for f in src/dist/compose.yaml src/dist/seccomp/ebpfsentinel-agent.json; do
+            if [ ! -f "$f" ] || [ -L "$f" ]; then
+              echo "::error::${f} is missing from the agent repository, or is a link: the container deployment cannot ship without it"
+              exit 1
+            fi
+          done
+          mkdir -p container
+          # The source names the images at the 0.0.0-dev placeholder every
+          # codebase carries. Stamp this release's version, so a compose file
+          # downloaded from release N runs release N.
+          sed -E 's#^([[:space:]]*image:[[:space:]]*ghcr\.io/ebpfsentinel/[a-z-]+):0\.0\.0-dev[[:space:]]*$#\1:'"${VERSION}"'#' \
+            src/dist/compose.yaml > container/compose.yaml
+          cp src/dist/seccomp/ebpfsentinel-agent.json container/ebpfsentinel-agent.json
+          bash release/scripts/check-container-assets.sh container \
+            src/dist/seccomp/ebpfsentinel-agent.json "${VERSION}"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ebpfsentinel-release-container
+          path: |
+            container/compose.yaml
+            container/ebpfsentinel-agent.json
+          retention-days: 30
+
   # ── One artifact for the signer and the publisher ─────────────────
   bundle:
     name: Bundle artifacts
-    needs: [build-release, lab]
+    needs: [build-release, lab, container]
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:
