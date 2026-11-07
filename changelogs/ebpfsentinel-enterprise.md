@@ -50,9 +50,8 @@ First public release of the enterprise layer. Everything below is new relative t
 
 #### TLS intelligence
 
-- **JA4+ threat database**, behavioural anomaly detection, PQC compliance checks, crypto policy enforcement
+- **JA4 threat database**, behavioural anomaly detection, PQC compliance checks, crypto policy enforcement
 - **Per-destination cipher baseline** and TLS version downgrade detection
-- **Server fingerprint tracking per SNI** with JA4S change detection
 - **SNI / certificate CN / SAN mismatch detection** with wildcard-aware matching
 - **Session resumption anomaly tracking** with multi-destination ticket reuse detection
 - **Container-aware peer-group rarity detection** for fingerprint deviation from a workload baseline

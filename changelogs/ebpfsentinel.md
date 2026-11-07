@@ -109,10 +109,9 @@ Within each release, entries are grouped **Added → Changed → Fixed → Secur
 - **netkit support**: native TC-program attach on Cilium netkit pod interfaces (kernel 6.7+) via `BPF_LINK_CREATE` + `BPF_NETKIT_PRIMARY`, with device detection, pod namespace discovery, and a hot-plug watcher that attaches/detaches as pods come and go
 - **Container/K8s context** surfaced on both the REST and gRPC alert streams
 
-#### TLS Intelligence (JA4+)
-- **JA4S ServerHello fingerprinting**: `TlsServerHello` parser + `compute_ja4s`, dedicated JA4S endpoint
+#### TLS Intelligence (JA4)
 - **New MITRE mappings**: TLS version downgrade, `SniCertMismatch` (T1557), `SessionResumeAnomaly`, and container-aware `PeerGroupAnomaly`
-- **Fingerprint persistence**: JA4/JA4S caches backed by a redb store
+- **Fingerprint persistence**: the JA4 cache backed by a redb store
 - **Inline TLS record parsing** for JA4 enrichment in the L7 path
 
 #### L7 Firewall
@@ -209,7 +208,7 @@ Within each release, entries are grouped **Added → Changed → Fixed → Secur
 
 #### Detection & Response
 - **MITRE ATT&CK v18 mapping**: technique registry wired into all alerts, REST API/gRPC/CLI filtering by tactic/technique, coverage endpoint and dashboard
-- **JA4+ TLS fingerprinting**: ClientHello parser → JA4/JA4S/JA4H hash computation → flow cache → alert enrichment → REST API + gRPC + CLI + Prometheus metrics
+- **JA4 TLS fingerprinting**: ClientHello parser → JA4 hash computation → flow cache → alert enrichment → REST API + gRPC + CLI + Prometheus metrics
 - **Post-quantum TLS**: X25519MLKEM768 hybrid key exchange for server TLS, PQ `CryptoProvider` at startup for all outbound clients, public API for enterprise mTLS
 - **OTLP Logs export**: fire-and-forget via official opentelemetry-rust gRPC/HTTP client
 - **Manual response actions**: time-bounded block/throttle via CLI/API with TTL auto-expiry and audit trail

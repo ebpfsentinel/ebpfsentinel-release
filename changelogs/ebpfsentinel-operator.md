@@ -16,9 +16,9 @@ First public release of the Kubernetes operator.
 
 - **37 CRDs** covering the agent and its feature surface, with license-gated enterprise controllers
 - **`EbpfSentinelAgent`**: `AttachMode` and container-awareness settings
-- **`TLSIntelligenceConfig`**: seven sub-capabilities, aligned with the JA4+ engine
+- **`TLSIntelligenceConfig`**: seven sub-capabilities, aligned with the JA4 engine
 - **`ConnectionTrackingConfig`**: matches the kernel netfilter conntrack architecture
-- **`JA4Config`**: JA4S fingerprinting and session tracking
+- **`JA4Config`**: JA4 fingerprint cache and session tracking
 - **`DLPPolicy`**: `DlpMode`, `ExtendedTlsConfig` and `TlsProxyConfig` with certificate checking
 - **Load balancer CRDs** aligned with the agent LB API (Maglev hashing, L2 DSR, VIP announcement)
 
