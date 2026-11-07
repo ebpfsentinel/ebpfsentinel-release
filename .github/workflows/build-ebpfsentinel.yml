@@ -325,6 +325,22 @@ jobs:
           # published, and demo.sh says so when the flag is passed anyway.
           rm -f "${STAGING}/compose.local.yaml"
           rm -rf "${STAGING}/.run"
+          # The agent runs with every capability dropped, so it needs its
+          # tailored seccomp profile rather than the Docker default. In the
+          # checkout the lab reaches it through a link into dist/seccomp/,
+          # which would dangle once extracted: put the file itself in place.
+          cp --remove-destination dist/seccomp/ebpfsentinel-agent.json \
+            "${STAGING}/seccomp/ebpfsentinel-agent.json"
+          # A lab is unpacked on its own, so nothing in it may point outside
+          # it: no link, and no compose path climbing out of the directory.
+          if [ -n "$(find "${STAGING}" -type l)" ]; then
+            echo "::error::the lab tarball would carry a symbolic link: $(find "${STAGING}" -type l | tr '\n' ' ')"
+            exit 1
+          fi
+          if grep -nE '(^|[=:[:space:]"])\.\./' "${STAGING}/compose.yaml"; then
+            echo "::error::demo/compose.yaml names a path outside the lab directory"
+            exit 1
+          fi
           # The lab pulls `latest` by default. Pin it to the release being cut,
           # so a lab downloaded from release N keeps running release N.
           printf 'EBPFSENTINEL_TAG=%s\n' "${VERSION}" > "${STAGING}/.env"

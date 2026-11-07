@@ -64,8 +64,11 @@ them changed. The manifest is what states which versions belong together, and
    reader runs is retrieved here, the lab included, and it is the one asset
    whose name carries no version: it is fetched before anybody has chosen a
    release, so `releases/latest/download/` has to resolve, and the version it
-   came from travels inside it as an `.env` pinning `EBPFSENTINEL_TAG`. It is
-   not in the measurements manifest, which inventories binaries.
+   came from travels inside it as an `.env` pinning `EBPFSENTINEL_TAG`. It
+   carries the agent's seccomp profile as a file rather than the link the
+   checkout holds, and the job fails if anything in it points outside the
+   directory. It is not in the measurements manifest, which inventories
+   binaries.
 
    It also builds the native packages from that same commit, a `.deb` and an
    `.rpm` per architecture, and they ride the same bundle, so they are
