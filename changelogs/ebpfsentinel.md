@@ -52,7 +52,7 @@ Within each release, entries are grouped **Added → Changed → Fixed → Secur
 
 #### eBPF toolchain
 - **aya 0.16.0, aya-obj 0.6.0, aya-ebpf 0.3.0**. `ebpf-common` pinned aya directly instead of through the workspace, so the dependency graph carried two aya versions and every `Pod` implementation targeted the older trait; the pin is now unified
-- **`aya-build`, `aya-log` and `aya-log-ebpf` removed.** The log call sites were `#[cfg(debug_assertions)]` and kernel objects are built in release, so the shipped program bytes are byte-identical
+- **`aya-log` and `aya-log-ebpf` removed.** The log call sites were `#[cfg(debug_assertions)]` and kernel objects are built in release, so the shipped program bytes are byte-identical
 - **All map declarations migrated to BTF map definitions** across every kernel object. The legacy `maps` ELF section is gone; loading now goes through the BTF `.maps` section exclusively
 
 #### Datapath
