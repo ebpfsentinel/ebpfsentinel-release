@@ -56,7 +56,7 @@ for t in spdxjson vuln openvex; do
   cosign verify-attestation --type "$t" \
     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
     --certificate-identity-regexp "$ID_RE" \
-    --certificate-github-workflow-repository ebpfsentinel/ebpfsentinel "$REF" \
+    --certificate-github-workflow-repository ebpfsentinel/ebpfsentinel-release "$REF" \
     | jq -r '.payload | @base64d | fromjson | .predicate'
 done
 ```

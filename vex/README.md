@@ -57,7 +57,7 @@ statement you will have to defend.
 cosign verify-attestation --type openvex \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --certificate-identity-regexp '^https://github.com/ebpfsentinel/ebpfsentinel-release/.github/workflows/sign-image.yml@refs/tags/v' \
-  --certificate-github-workflow-repository ebpfsentinel/ebpfsentinel \
+  --certificate-github-workflow-repository ebpfsentinel/ebpfsentinel-release \
   ghcr.io/ebpfsentinel/ebpfsentinel@sha256:<digest> \
   | jq -r '.payload | @base64d | fromjson | .predicate'
 ```
