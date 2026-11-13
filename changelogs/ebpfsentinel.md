@@ -42,6 +42,10 @@ Within each release, entries are grouped **Added → Changed → Fixed → Secur
 
 ### Changed
 
+#### Kernel floor 6.12, capabilities probed per host
+- **Minimum kernel raised 6.9 -> 6.12**, refused at startup. The floor is computed in one place and no capability is decided by a kernel number
+- **Every capability above the floor is probed on the host** and switched on only where the kernel accepts it: the 6.12 file kfuncs need a sleepable context and the BPF LSM, so each is probed and falls back to userspace where it does not load. The per-host answer is the `capabilities` block of `GET /api/v1/ebpf/kernel-features` and the `ebpf kernel-features` command
+
 #### Control API, shut by default
 - **`auth.enabled` now defaults to `true`.** An agent with no authentication configured used to answer anything that could reach it; it now authenticates every route under `/api/v1`. `/healthz` and `/readyz` never authenticate, and `/metrics` follows `auth.metrics_auth_required`
 - **A key is generated at first start** when no API key, JWT secret or OIDC issuer is configured: 32 random bytes as `sk-<64 hex>`, written to `auth.bootstrap_key_path` (`/var/lib/ebpfsentinel/auth/api-key`, mode `0600` inside a `0700` directory) and logged once, never again. Setting the path to the empty string refuses the generated key, and the agent then refuses to serve an unauthenticated API off loopback
