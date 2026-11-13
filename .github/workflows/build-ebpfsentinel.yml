@@ -331,6 +331,11 @@ jobs:
           # which would dangle once extracted: put the file itself in place.
           cp --remove-destination dist/seccomp/ebpfsentinel-agent.json \
             "${STAGING}/seccomp/ebpfsentinel-agent.json"
+          # On hosts restricting unprivileged user namespaces, demo.sh accepts
+          # the host once the agent's AppArmor profile is loaded and names this
+          # file in the lab to load it from. Same link, same treatment.
+          cp --remove-destination dist/apparmor.d/ebpfsentinel-agent \
+            "${STAGING}/apparmor.d/ebpfsentinel-agent"
           # A lab is unpacked on its own, so nothing in it may point outside
           # it: no link, and no compose path climbing out of the directory.
           if [ -n "$(find "${STAGING}" -type l)" ]; then
