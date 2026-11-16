@@ -114,7 +114,7 @@ them changed. The manifest is what states which versions belong together, and
 
    | Asset | What it is |
    |---|---|
-   | `measurements.signed` | dual-signed inventory of every binary sha256 and image digest |
+   | `measurements.signed` | dual-signed inventory of every binary sha256, every kernel program object sha256 (`ebpf/<file>-<arch>`), image digest and crate checksum |
    | `release-<version>.yaml` | the manifest itself - the compatibility matrix |
    | `CHANGELOG-<version>.md` | every component's release notes, aggregated |
    | `sboms-<version>.tar.gz` | each image's SBOM, verified against the signing identity |

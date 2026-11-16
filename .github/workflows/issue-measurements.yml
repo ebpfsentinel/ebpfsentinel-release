@@ -1,6 +1,6 @@
 # Issue a signed release-measurements manifest: an inventory of the known-good
-# sha256 of the published binaries, OCI digests of the published images and
-# crates.io checksums for a release. Runs AFTER the release `v<version>` in
+# sha256 of the published binaries and of the kernel program objects they load,
+# OCI digests of the published images and crates.io checksums for a release. Runs AFTER the release `v<version>` in
 # THIS repository holds every component's assets - see docs/RELEASES.md.
 #
 # Releases are centralized here: the component repositories build and sign, and
@@ -225,6 +225,27 @@ jobs:
             fi
             add "${binname}-${arch}" binary "$(sha256sum "$path" | awk '{print $1}')"
           done < binaries.tsv
+
+          # --- Kernel program objects: every file under a tarball's ebpf/ -
+          # An agent with the runtime-attestation feature hashes each object in
+          # the directory it loads from and looks it up as ebpf/<file>-<arch>.
+          # Two tarballs of one arch (OSS and enterprise) each ship the set, so
+          # a name may be listed twice; an identical pair is written once.
+          cut -f3,5 binaries.tsv | sort -u | while IFS=$'\t' read -r tarball arch; do
+            [ -z "$tarball" ] && continue
+            find "ex/${tarball}" -type d -name ebpf | while IFS= read -r dir; do
+              find "$dir" -maxdepth 1 -type f -printf '%f\n' | sort | while IFS= read -r obj; do
+                printf '%s\t%s\n' "ebpf/${obj}-${arch}" "$(sha256sum "${dir}/${obj}" | awk '{print $1}')"
+              done
+            done
+          done | sort -u > objects.tsv
+          if [ ! -s objects.tsv ]; then
+            echo "::error::no release tarball carries an ebpf/ directory - the agents would have nothing to attest"
+            exit 1
+          fi
+          while IFS=$'\t' read -r name digest; do
+            add "$name" ebpf_object "$digest"
+          done < objects.tsv
 
           # --- Images: pin the multi-arch index digest --------------------
           # The tag is resolved now and must still name the digest recorded in
