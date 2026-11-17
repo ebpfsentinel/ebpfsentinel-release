@@ -69,6 +69,8 @@ jobs:
   # containing a hyphen. Versions and refs are emitted for every component in
   # the manifest, including ones `only` excludes: the enterprise and dashboard
   # builds need the OSS commit whether or not the OSS agent is being rebuilt.
+  # The dashboard build likewise needs the enterprise commit, the signed
+  # stop it compiles in.
   plan:
     name: Plan ${{ inputs.release }}
     runs-on: ubuntu-latest
@@ -276,6 +278,7 @@ jobs:
       ref: ${{ needs.plan.outputs.dashboard_ref }}
       push: ${{ !inputs.dry-run }}
       oss-ref: ${{ needs.plan.outputs.ebpfsentinel_ref }}
+      enterprise-ref: ${{ needs.plan.outputs.enterprise_ref }}
     # Named rather than inherited: a build sees the secrets it declares and
     # none of the others, the release signing keys least of all.
     secrets:

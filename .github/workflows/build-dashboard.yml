@@ -3,7 +3,11 @@
 #
 # The image build generates its typed API client from the agent's OpenAPI spec
 # and protos, so it needs the agent tree: the Dockerfile fetches it itself at
-# AGENT_REF, which is the same OSS commit the release manifest pins.
+# AGENT_REF, which is the same OSS commit the release manifest pins. The
+# signed stop is the enterprise layer's own implementation, path-depended from
+# the dashboard workspace: the Dockerfile fetches it at ENTERPRISE_REF, the
+# enterprise commit the manifest pins, reading the private repository with
+# SIBLING_READ_TOKEN passed as a BuildKit secret that never lands in a layer.
 name: build-dashboard
 
 on:
@@ -23,6 +27,10 @@ on:
         type: string
       oss-ref:
         description: "Commit sha of the OSS agent the API client is generated from"
+        required: true
+        type: string
+      enterprise-ref:
+        description: "Commit sha of the enterprise layer the signed stop is compiled from"
         required: true
         type: string
       push:
@@ -137,7 +145,10 @@ jobs:
           build-args: |
             AGENT_REPO=${{ env.AGENT_REPO_URL }}
             AGENT_REF=${{ inputs.oss-ref }}
+            ENTERPRISE_REF=${{ inputs.enterprise-ref }}
             RELEASE_SIGNING_KEYS=${{ steps.release-keys.outputs.pairs }}
+          secrets: |
+            sibling_read_token=${{ secrets.SIBLING_READ_TOKEN }}
 
   # The full remote form is deliberate: Sigstore records the CALLED ref as the
   # certificate subject, and every published policy pins @refs/tags/v*.
