@@ -276,6 +276,15 @@ jobs:
           bash release/scripts/check-container-assets.sh "${STAGING}" \
             oss/dist/seccomp/ebpfsentinel-agent.json "${VERSION}" \
             ghcr.io/ebpfsentinel/ebpfsentinel-enterprise
+          # One command line: the enterprise binary carries every command of
+          # the open-source client, so the tarball holds exactly these three
+          # executables and an open-source agent beside them is a second
+          # binary nobody should have to choose between.
+          found="$(find "${STAGING}" -maxdepth 1 -type f -perm -u+x -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')"
+          if [ "${found}" != "ebpfsentinel-enterprise-agent ebpfsentinel-license enterprise-warden install.sh " ]; then
+            echo "::error::the tarball carries executables ${found}; expected the enterprise agent, the licence tool, the warden and install.sh"
+            exit 1
+          fi
           tar czf "${STAGING}.tar.gz" "${STAGING}"
           echo "TARBALL=${STAGING}.tar.gz" >> "$GITHUB_ENV"
 
