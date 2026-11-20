@@ -26,6 +26,10 @@ on:
         required: false
         default: true
         type: boolean
+    outputs:
+      bundle-artifact:
+        description: "Artifact holding the release assets"
+        value: operator-bundle
 
 permissions: {}
 
@@ -254,3 +258,104 @@ jobs:
       image: ${{ needs.helm.outputs.image }}
       digest: ${{ needs.helm.outputs.digest }}
       sbom: false
+
+  # ── The samples, one resource per kind ────────────────────────────
+  # The operator documentation installs an agent and every policy kind from
+  # these files, so they are a release asset in their own right rather than a
+  # path in a repository the reader cannot clone. The asset name carries no
+  # version, as the demo lab's does not: which release it came from is in the
+  # signed operator-SHA256SUMS that lists it.
+  samples:
+    name: Package the samples
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      # The operator's repository is private, so GITHUB_TOKEN cannot read it
+      # from here, and a checkout missing its token reports only `Input required
+      # and not supplied: token`, naming neither the secret nor the repository.
+      - name: Refuse to run without the token the operator checkout needs
+        env:
+          SIBLING_READ_TOKEN: ${{ secrets.SIBLING_READ_TOKEN }}
+        run: |
+          if [[ -z "${SIBLING_READ_TOKEN}" ]]; then
+            echo "::error::SIBLING_READ_TOKEN is not configured, so ebpfsentinel/ebpfsentinel-operator cannot be checked out and the operator samples cannot be packaged. Add a repository secret holding a token with read access to the contents of ebpfsentinel/ebpfsentinel-operator. It is the one token every repository in this project uses to read a private sibling, so grant it read on all of them at once rather than on this one."
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ebpfsentinel/ebpfsentinel-operator
+          ref: ${{ inputs.ref }}
+          path: src
+          token: ${{ secrets.SIBLING_READ_TOKEN }}
+
+      - name: Create the samples tarball
+        working-directory: src
+        run: |
+          set -euo pipefail
+          STAGING=ebpfsentinel-operator-samples
+          for f in config/samples/agent.yaml config/samples/oss config/samples/enterprise; do
+            if [ ! -e "$f" ]; then
+              echo "::error::${f} is missing from the operator repository: the samples cannot ship without it"
+              exit 1
+            fi
+          done
+          mkdir -p "${STAGING}"
+          cp -a config/samples/. "${STAGING}/"
+          # The samples are unpacked on their own, so nothing in them may point
+          # outside them.
+          if [ -n "$(find "${STAGING}" -type l)" ]; then
+            echo "::error::the samples tarball would carry a symbolic link: $(find "${STAGING}" -type l | tr '\n' ' ')"
+            exit 1
+          fi
+          if [ -n "$(find "${STAGING}" -type f ! -name '*.yaml')" ]; then
+            echo "::error::the samples tarball would carry a file that is not a resource: $(find "${STAGING}" -type f ! -name '*.yaml' | tr '\n' ' ')"
+            exit 1
+          fi
+          tar czf "${STAGING}.tar.gz" "${STAGING}"
+          tar tzf "${STAGING}.tar.gz"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: operator-samples
+          path: src/ebpfsentinel-operator-samples.tar.gz
+          retention-days: 30
+
+  # ── One artifact for the signer and the publisher ─────────────────
+  # cut-release.yml publishes every `*-bundle` artifact as release assets and
+  # renames the bundle's SHA256SUMS after it, here operator-SHA256SUMS.
+  bundle:
+    name: Bundle artifacts
+    needs: [samples]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: operator-samples
+          path: bundle
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: operator-bundle
+          path: bundle/
+          retention-days: 7
+
+  # The full remote form, for the reason given on `sign` above: Sigstore
+  # records the called ref, and every published policy pins @refs/tags/v*.
+  sign-blobs:
+    name: Sign blobs
+    needs: [bundle]
+    # A dry run publishes nothing, so it writes nothing to the transparency log
+    # either.
+    if: inputs.push
+    permissions:
+      id-token: write
+      contents: read
+      attestations: write
+    uses: ebpfsentinel/ebpfsentinel-release/.github/workflows/sign-blob.yml@v1
+    with:
+      artifact-name: operator-bundle

@@ -51,12 +51,17 @@ REPOSITORY = "ebpfsentinel/ebpfsentinel-release"
 SUMS_FILE = {
     "ebpfsentinel": "ebpfsentinel-SHA256SUMS",
     "ebpfsentinel-enterprise": "enterprise-SHA256SUMS",
+    "ebpfsentinel-operator": "operator-SHA256SUMS",
 }
 
-# The demo lab rides the agent's bundle and carries no version in its name, so
-# `releases/latest/download/` resolves before anybody has picked a release.
-LAB = "ebpfsentinel-demo.tar.gz"
-LAB_COMPONENT = "ebpfsentinel"
+# Assets a component's bundle carries beside its tarballs, with no version in
+# their name. The demo lab rides the agent's bundle, so
+# `releases/latest/download/` resolves before anybody has picked a release; the
+# operator's samples ride the operator's.
+UNVERSIONED = {
+    "ebpfsentinel": ["ebpfsentinel-demo.tar.gz"],
+    "ebpfsentinel-operator": ["ebpfsentinel-operator-samples.tar.gz"],
+}
 
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
@@ -126,15 +131,14 @@ def images_of(component: dict) -> list[str]:
 
 
 def files_of(component: dict) -> list[str]:
-    """Every tarball the manifest declares, once per architecture."""
+    """Every tarball the manifest declares, once per architecture, then the unversioned assets."""
     names: list[str] = []
     for binary in component.get("binaries") or []:
         for arch in binary.get("arches") or []:
             name = binary["tarball"].format(version=component["version"], arch=arch)
             if name not in names:
                 names.append(name)
-    if component["name"] == LAB_COMPONENT:
-        names.append(LAB)
+    names.extend(UNVERSIONED.get(component["name"], []))
     return names
 
 

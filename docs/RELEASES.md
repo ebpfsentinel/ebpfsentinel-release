@@ -98,6 +98,14 @@ them changed. The manifest is what states which versions belong together, and
    that installs with `apt` or `dnf` gets a file it can verify exactly as the
    tarball is verified.
 
+   `build-operator` packages the operator's samples, one resource per kind
+   from its `config/samples` at the pinned commit, as
+   `ebpfsentinel-operator-samples.tar.gz`, in a bundle of its own signed and
+   published as `operator-SHA256SUMS`. The operator documentation installs
+   agents and policies from it, so a reader never needs the operator
+   repository. Like the lab, the name carries no version and the job fails
+   if anything in it is a link or not a resource.
+
    The build workflows are *called*, not dispatched, so everything happens in a
    single run: artifacts are already in scope, there is nothing to poll for and
    no token with write access to this repository sitting in another repo's
@@ -143,7 +151,7 @@ them changed. The manifest is what states which versions belong together, and
    checked:
 
    ```bash
-   for f in ebpfsentinel enterprise; do
+   for f in ebpfsentinel enterprise operator; do
      gh release download "v$REL" -p "$f-SHA256SUMS*"
      cosign verify-blob --certificate "$f-SHA256SUMS.crt" \
        --signature "$f-SHA256SUMS.sig" \
@@ -152,7 +160,7 @@ them changed. The manifest is what states which versions belong together, and
        --certificate-github-workflow-repository ebpfsentinel/ebpfsentinel-release \
        "$f-SHA256SUMS"
    done
-   cat ebpfsentinel-SHA256SUMS enterprise-SHA256SUMS > "releases/$REL.sums"
+   cat ebpfsentinel-SHA256SUMS enterprise-SHA256SUMS operator-SHA256SUMS > "releases/$REL.sums"
    ./scripts/emit-release-index.py > /dev/null
    ```
 
