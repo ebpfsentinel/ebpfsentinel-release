@@ -42,9 +42,9 @@ Within each release, entries are grouped **Added → Changed → Fixed → Secur
 
 ### Changed
 
-#### Kernel floor 6.12, capabilities probed per host
-- **Minimum kernel raised 6.9 -> 6.12**, refused at startup. The floor is computed in one place and no capability is decided by a kernel number
-- **Every capability above the floor is probed on the host** and switched on only where the kernel accepts it: the 6.12 file kfuncs need a sleepable context and the BPF LSM, so each is probed and falls back to userspace where it does not load. The per-host answer is the `capabilities` block of `GET /api/v1/ebpf/kernel-features` and the `ebpf kernel-features` command
+#### Kernel floor 6.18, capabilities probed per host
+- **Minimum kernel raised 6.9 -> 6.18**, refused at startup: the long-term kernel of 2025 and the first release that verifies a signed BPF program. Ubuntu 22.04, Debian 12, RHEL 9 and 10 with their rebuilds, SLES 16, and Debian 13 and Ubuntu 24.04 on their original kernels are no longer supported; Debian 13 runs it from trixie-backports, Ubuntu 24.04 from its HWE kernel. The floor is computed in one place and no capability is decided by a kernel number
+- **Every capability above the floor is probed on the host** and switched on only where the kernel accepts it: the file kfuncs of 6.12 need a sleepable context and the BPF LSM, so each is probed and falls back to userspace where it does not load. The per-host answer is the `capabilities` block of `GET /api/v1/ebpf/kernel-features` and the `ebpf kernel-features` command
 
 #### Control API, shut by default
 - **`auth.enabled` now defaults to `true`.** An agent with no authentication configured used to answer anything that could reach it; it now authenticates every route under `/api/v1`. `/healthz` and `/readyz` never authenticate, and `/metrics` follows `auth.metrics_auth_required`
