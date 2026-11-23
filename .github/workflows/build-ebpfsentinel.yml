@@ -215,6 +215,9 @@ jobs:
           # to the container deployment, not to a systemd unit.
           cp -a dist/apparmor.d "${STAGING}/"
           cp -a dist/sysctl.d "${STAGING}/"
+          # The agent runs as its own unprivileged user; install.sh creates it
+          # from this file, and the units name it.
+          cp -a dist/sysusers.d "${STAGING}/"
           # The three host profiles are the starting configuration an operator
           # copies over the reference one, and the uninstall script is how a
           # manual install is undone - a tarball with no way back out is a
