@@ -204,9 +204,28 @@ jobs:
   # Static rather than a matrix over the manifest: `uses:` must be a literal, so
   # a manifest-driven fan-out is not expressible. The `if` is what the manifest
   # drives.
+  # The kernel programs, built and signed once for both editions: the OSS and
+  # the enterprise builds download this run's artifact, so one release carries
+  # one loader signing certificate. Built at the OSS commit the manifest pins
+  # whenever either agent is, the same commit the enterprise path deps use.
+  ebpf:
+    name: ebpf
+    needs: [plan]
+    if: >-
+      needs.plan.outputs.ebpfsentinel_selected == 'true'
+      || needs.plan.outputs.enterprise_selected == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/build-ebpf.yml
+    with:
+      version: ${{ needs.plan.outputs.ebpfsentinel_version }}
+      ref: ${{ needs.plan.outputs.ebpfsentinel_ref }}
+    secrets:
+      SIBLING_READ_TOKEN: ${{ secrets.SIBLING_READ_TOKEN }}
+
   ebpfsentinel:
     name: ebpfsentinel
-    needs: [plan]
+    needs: [plan, ebpf]
     if: needs.plan.outputs.ebpfsentinel_selected == 'true'
     permissions:
       contents: read
@@ -225,7 +244,7 @@ jobs:
 
   enterprise:
     name: ebpfsentinel-enterprise
-    needs: [plan]
+    needs: [plan, ebpf]
     if: needs.plan.outputs.enterprise_selected == 'true'
     permissions:
       contents: read
@@ -306,7 +325,7 @@ jobs:
   # ── The one release we publish ────────────────────────────────────
   publish:
     name: Publish ${{ inputs.release }}
-    needs: [plan, ebpfsentinel, enterprise, operator, dashboard, anomstream]
+    needs: [plan, ebpf, ebpfsentinel, enterprise, operator, dashboard, anomstream]
     # A component the `only` filter excluded is skipped, and a skipped
     # dependency would skip this job under the default rule. Failures and
     # cancellations still stop the release. A dry run built everything and

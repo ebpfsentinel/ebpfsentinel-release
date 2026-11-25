@@ -151,6 +151,35 @@ and shipped inside every enterprise release tarball, beside the
 `ebpfsentinel-license` binary that consumes them. Both `build-enterprise.yml`
 and `issue-measurements.yml` fail closed if either file is missing.
 
+## The kernel program loaders' key
+
+Every eBPF program the agent loads is wrapped, at build, in a small loader
+program whose bytes are signed, so a kernel that verifies program signatures
+checks that the loader came from our build before it runs it. That key is not
+in the table above because it is never held anywhere:
+
+- `build-ebpf.yml` makes an RSA-3072 key and a self-signed certificate under
+  `RUNNER_TEMP` with `openssl req`, at the start of the one job that builds the
+  programs for both editions;
+- the build signs every loader with the openssl command line
+  (`EBPFSENTINEL_RELEASE_BUILD=1` makes it refuse to fall back to the
+  committed test key, and refuse a certificate equal to it);
+- an `if: always()` step shreds the key whether the build passed or failed,
+  so it does not outlive the run;
+- the certificate (`loader-signing.der`) travels with the objects into the
+  tarballs and the agent and warden images of both editions, and
+  `issue-measurements.yml` records its SHA-256 as `loader_certificate_sha256`
+  in `measurements.json`, refusing the test certificate and refusing two
+  different certificates in one release.
+
+So there is no rotation and nothing to revoke: each release has its own
+certificate, the measurements say which, and the release signing pair above
+is what makes that statement trustworthy. A host checks it by comparing the
+`certificate_sha256` the agent reports at `/api/v1/crypto/posture` with the
+field in the measurements of the release it installed. `scripts/guard.sh`
+check `[13]` fails if the key's destruction, the release flag, the single
+build or the measurements field drift.
+
 ## Generating the repository signing key
 
 apt and dnf predate Sigstore and verify an index with OpenPGP: there is no way

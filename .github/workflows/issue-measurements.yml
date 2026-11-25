@@ -288,12 +288,41 @@ jobs:
             add "crates.io/${crate}" crate "$sum"
           done < crates.tsv
 
+          # --- Loader signing certificate: one per release ----------------
+          # Every tarball carrying kernel programs carries the certificate
+          # their loaders were signed with, and one release run signs once for
+          # both editions, so every copy must hash the same. Its digest is
+          # recorded on its own, beside the per-file entries above, so a
+          # customer compares the certificate in a running warden's keyring
+          # with one field rather than finding it among the objects. The
+          # committed test certificate of the OSS tree is refused: no release
+          # is signed with a key anyone holds.
+          TEST_LOADER_CERT="f93340d803570e80340806d2ad0dc9dc25f90b8c1a3d0584f58e82d1bc1a78aa"
+          find ex -type f -path '*/ebpf/loader-signing.der' -exec sha256sum {} + \
+            | awk '{print $1}' | sort -u > loader-cert.txt
+          if [ "$(grep -c . loader-cert.txt)" -gt 1 ]; then
+            echo "::error::the release tarballs carry different loader signing certificates:"
+            cat loader-cert.txt
+            exit 1
+          fi
+          LOADER_CERT="$(head -1 loader-cert.txt)"
+          if [ "$LOADER_CERT" = "$TEST_LOADER_CERT" ]; then
+            echo "::error::the loaders were signed with the committed test key, which no release trusts"
+            exit 1
+          fi
+          if [ -s objects.tsv ] && [ -z "$LOADER_CERT" ]; then
+            echo "::error::the tarballs carry kernel programs but no ebpf/loader-signing.der"
+            exit 1
+          fi
+
           jq -n \
             --arg schema "ebpfsentinel.measurements/v1" \
             --arg release "$REL" \
             --arg issued "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg loader_cert "$LOADER_CERT" \
             --argjson artifacts "[$ART]" \
-            '{schema:$schema,release:$release,issued_at:$issued,artifacts:$artifacts}' \
+            '{schema:$schema,release:$release,issued_at:$issued,artifacts:$artifacts}
+             + (if $loader_cert == "" then {} else {loader_certificate_sha256:$loader_cert} end)' \
             > measurements.json
           echo "----- measurements.json -----"
           cat measurements.json

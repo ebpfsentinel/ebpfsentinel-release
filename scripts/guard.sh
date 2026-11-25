@@ -416,6 +416,65 @@ write_good; rm "${work}/d/ebpfsentinel-agent.json"; ln -s ../reference.json "${w
 expect_refused "a symlinked profile"
 rm -rf "$work"
 
+# ---------------------------------------------------------------------------
+echo "[13] kernel program loaders are signed once per release, with a key that dies with the run"
+# One build signs for both editions, with a key made in that job and shredded
+# whatever happened; every other build downloads its artifact. The
+# measurements record the certificate's digest and refuse the committed test
+# certificate. A drift in any of these ships loaders signed by a key that
+# outlived its release, or two certificates for one release.
+python3 - <<'PY'
+import glob, sys, yaml
+problems = []
+def load(path):
+    return yaml.safe_load(open(path))
+ebpf = load(".github/workflows/build-ebpf.yml")
+steps = ebpf["jobs"]["build-ebpf"]["steps"]
+sign = [s for s in steps if "cargo xtask ebpf-build" in str(s.get("run", ""))]
+if len(sign) != 1:
+    problems.append("build-ebpf.yml: expected exactly one step running `cargo xtask ebpf-build`")
+else:
+    env = sign[0].get("env", {})
+    if str(env.get("EBPFSENTINEL_RELEASE_BUILD", "")) in ("", "0"):
+        problems.append("build-ebpf.yml: the signing step does not set EBPFSENTINEL_RELEASE_BUILD")
+    for var in ("EBPFSENTINEL_LOADER_SIGNING_KEY", "EBPFSENTINEL_LOADER_SIGNING_CERT"):
+        if var not in env:
+            problems.append(f"build-ebpf.yml: the signing step does not set {var}")
+destroy = [s for s in steps if "shred" in str(s.get("run", ""))]
+if not destroy or str(destroy[0].get("if", "")).strip() != "always()":
+    problems.append("build-ebpf.yml: no `if: always()` step shreds the signing key")
+make = [s for s in steps if "openssl req" in str(s.get("run", ""))]
+if not make or "RUNNER_TEMP" not in str(make[0].get("run", "")):
+    problems.append("build-ebpf.yml: the signing key is not made under RUNNER_TEMP")
+for f in sorted(glob.glob(".github/workflows/*.yml")):
+    if f.endswith("/build-ebpf.yml"):
+        continue
+    if "cargo xtask ebpf-build" in open(f).read():
+        problems.append(f"{f}: builds eBPF itself; only build-ebpf.yml signs loaders")
+ent = open(".github/workflows/build-enterprise.yml").read()
+if "ebpf-out=signed-ebpf" not in ent:
+    problems.append("build-enterprise.yml: the enterprise agent does not take the signed objects as its `ebpf-out` context")
+if "'loader-cert'" not in ent:
+    problems.append("build-enterprise.yml: the enterprise warden does not take the release certificate as its `loader-cert` context")
+cut = load(".github/workflows/cut-release.yml")["jobs"]
+for job in ("ebpfsentinel", "enterprise"):
+    needs = cut[job].get("needs", [])
+    if "ebpf" not in needs:
+        problems.append(f"cut-release.yml: job {job} does not need the one signed eBPF build")
+meas = open(".github/workflows/issue-measurements.yml").read()
+test_digest = "f93340d803570e80340806d2ad0dc9dc25f90b8c1a3d0584f58e82d1bc1a78aa"
+if test_digest not in meas:
+    problems.append("issue-measurements.yml: does not refuse the committed test certificate")
+if "loader_certificate_sha256" not in meas:
+    problems.append("issue-measurements.yml: does not record the loader certificate digest")
+if problems:
+    for p in problems:
+        print("  FAIL:", p)
+    sys.exit(1)
+print("  PASS: one signed build, key shredded, enterprise reuses it, measurements record the certificate")
+PY
+[ $? -eq 0 ] || fail=1
+
 echo
 if [ "$fail" -eq 0 ]; then
   echo "guard: OK"

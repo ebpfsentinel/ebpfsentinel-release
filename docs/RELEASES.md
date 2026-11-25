@@ -58,6 +58,14 @@ them changed. The manifest is what states which versions belong together, and
    actually exists, then creates ONE draft release `v<version>` here with the
    aggregated notes.
 
+   Before either edition's build, `cut-release` runs `build-ebpf` once: it
+   builds the kernel programs, signs their loaders with a key made in that job
+   and shredded at its end, and uploads the objects with the certificate as
+   the run artifact `ebpfsentinel-ebpf-programs`. `build-ebpfsentinel` and
+   `build-enterprise` both download it, so both editions ship the same objects
+   and the same certificate, whose digest the measurements record
+   ([KEY-MANAGEMENT.md](KEY-MANAGEMENT.md#the-kernel-program-loaders-key)).
+
    `build-ebpfsentinel` also packages the demo lab from the same pinned commit,
    as `ebpfsentinel-demo.tar.gz`, and puts it in the blob bundle with the
    tarballs so it is signed and listed in `SHA256SUMS` like them. Everything a

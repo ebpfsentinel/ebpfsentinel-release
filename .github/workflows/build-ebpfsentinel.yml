@@ -86,43 +86,15 @@ jobs:
           toolchain: 1.99.0
           targets: ${{ matrix.target }}
 
-      # The eBPF nightly date is written in one place, the toolchain file beside
-      # the programs in the component checkout. Reading it here rather than
-      # naming a channel means this workflow cannot build the objects with a
-      # compiler the component tree never pinned.
-      - name: Read the pinned eBPF toolchain
-        id: ebpf-toolchain
-        run: |
-          set -eu
-          file="src/crates/ebpf-programs/rust-toolchain.toml"
-          channel="$(sed -n 's/^channel[[:space:]]*=[[:space:]]*"\(.*\)"/\1/p' "$file")"
-          if [ -z "$channel" ]; then
-            echo "::error::no channel in $file, which is the one place the eBPF nightly date is written"
-            exit 1
-          fi
-          echo "channel=$channel" >> "$GITHUB_OUTPUT"
-
-      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # nightly
-        with:
-          toolchain: ${{ steps.ebpf-toolchain.outputs.channel }}
-          components: rust-src
-
-      # The eBPF objects are built on the nightly the component tree pins.
-      # Record it anyway: a log that names the compiler is what a regression is
-      # bisected against, and it is also how a stale pin becomes visible.
-      - name: Record toolchains
-        env:
-          EBPF_TOOLCHAIN: ${{ steps.ebpf-toolchain.outputs.channel }}
-        run: |
-          set -eu
-          rustc "+${EBPF_TOOLCHAIN}" -Vv
-          rustc +1.99.0 -Vv
+      # The eBPF objects are not built here: `build-ebpf.yml` builds them once
+      # per release run and signs their loaders with that run's own key, and
+      # every tarball, package and image of both editions carries those bytes.
+      - name: Record toolchain
+        run: rustc +1.99.0 -Vv
 
       - name: Install system dependencies
-        # No llvm-dev here: the LLVM bpf-linker links against is pinned, and
-        # installed by the install-bpf-linker action below. Installing the
-        # distribution's on top of it puts a second, older llvm-config on the
-        # PATH, which is what the action's own prefix pin exists to ignore.
+        # No llvm-dev here: nothing in this job links eBPF, the objects come
+        # from `build-ebpf.yml`.
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler musl-tools flex bison wget cmake libpcap-dev
 
       - name: Build static libpcap (musl)
@@ -150,17 +122,16 @@ jobs:
       # The composite actions stay in the component repository and are used
       # from the checkout. Copying them here would give two definitions of one
       # build step, and the copy is the one that rots.
-      - uses: ./src/.github/actions/install-bpf-linker
-        with:
-          source-root: src
-
       - uses: ./src/.github/actions/stamp-version
         with:
           version: ${{ inputs.version }}
 
-      - name: Build eBPF programs
-        working-directory: src
-        run: cargo xtask ebpf-build
+      # The signed objects, their `.loaders` bundles and the certificate, where
+      # the tarball and the packages below read them.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ebpfsentinel-ebpf-programs
+          path: src/target/bpfel-unknown-none/release/
 
       # `EBPFSENTINEL_TELEMETRY_ENDPOINT` is where the agent's anonymous
       # heartbeat goes. It is a repository variable rather than a secret on
@@ -465,86 +436,6 @@ jobs:
     with:
       artifact-name: ebpfsentinel-bundle
 
-  # ── eBPF objects for the agent image, built once ──────────────────
-  # The output is architecture-independent (bpfel-unknown-none), so building it
-  # per platform would burn a nightly toolchain twice for identical bytes.
-  build-ebpf:
-    name: Build eBPF
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ebpfsentinel/ebpfsentinel
-          ref: ${{ inputs.ref }}
-          path: src
-          token: ${{ secrets.SIBLING_READ_TOKEN || github.token }}
-
-      # xtask itself runs on RUSTUP_TOOLCHAIN; only the eBPF objects need nightly.
-      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
-        with:
-          toolchain: 1.99.0
-
-      # The eBPF nightly date is written in one place, the toolchain file beside
-      # the programs in the component checkout. Reading it here rather than
-      # naming a channel means this workflow cannot build the objects with a
-      # compiler the component tree never pinned.
-      - name: Read the pinned eBPF toolchain
-        id: ebpf-toolchain
-        run: |
-          set -eu
-          file="src/crates/ebpf-programs/rust-toolchain.toml"
-          channel="$(sed -n 's/^channel[[:space:]]*=[[:space:]]*"\(.*\)"/\1/p' "$file")"
-          if [ -z "$channel" ]; then
-            echo "::error::no channel in $file, which is the one place the eBPF nightly date is written"
-            exit 1
-          fi
-          echo "channel=$channel" >> "$GITHUB_OUTPUT"
-
-      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # nightly
-        with:
-          toolchain: ${{ steps.ebpf-toolchain.outputs.channel }}
-          components: rust-src
-
-      # The eBPF objects are built on the nightly the component tree pins.
-      # Record it anyway: a log that names the compiler is what a regression is
-      # bisected against, and it is also how a stale pin becomes visible.
-      - name: Record toolchains
-        env:
-          EBPF_TOOLCHAIN: ${{ steps.ebpf-toolchain.outputs.channel }}
-        run: |
-          set -eu
-          rustc "+${EBPF_TOOLCHAIN}" -Vv
-          rustc +1.99.0 -Vv
-
-      - uses: ./src/.github/actions/install-bpf-linker
-        with:
-          source-root: src
-
-      - name: Install build dependencies
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler libpcap-dev
-
-      - uses: ./src/.github/actions/stamp-version
-        with:
-          version: ${{ inputs.version }}
-
-      - name: Build eBPF programs
-        working-directory: src
-        run: |
-          set -euo pipefail
-          cargo xtask ebpf-build
-          mkdir -p ebpf-out
-          cp target/bpfel-unknown-none/release/* ebpf-out/
-          ls -la ebpf-out/
-
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: ebpfsentinel-ebpf-programs
-          path: src/ebpf-out/
-          retention-days: 7
-
   # ── Per-platform images ───────────────────────────────────────────
   #
   # Two images per platform, because a deployment needs both halves. The agent
@@ -554,7 +445,6 @@ jobs:
   # API-only mode and attaches nothing.
   build-images:
     name: Image ${{ matrix.component }} (${{ matrix.platform }})
-    needs: [build-ebpf]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 40
     permissions:
@@ -587,10 +477,10 @@ jobs:
           token: ${{ secrets.SIBLING_READ_TOKEN || github.token }}
 
       # Into the build context: Dockerfile.agent copies ebpf-out/ verbatim.
-      # Only the agent image carries the programs; the warden loads no eBPF and
-      # holds no maps.
+      # Both images take it: the agent for the programs and their signed
+      # loaders, the warden for the one certificate those loaders verify
+      # against, which it puts in the kernel keyring it hands the agent.
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        if: matrix.component == 'agent'
         with:
           name: ebpfsentinel-ebpf-programs
           path: src/ebpf-out/

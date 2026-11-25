@@ -1,0 +1,170 @@
+# Builds the kernel programs once per release run and signs every program's
+# loader with a key made for this run alone.
+#
+# Both editions ship these bytes: the OSS tarballs and images and the
+# enterprise ones download the one artifact this writes, so a release has one
+# loader signing certificate whichever editions it carries. The output is
+# architecture-independent (bpfel-unknown-none), so building it per platform
+# would burn a nightly toolchain twice for identical bytes.
+#
+# Called by cut-release.yml whenever the OSS agent or the enterprise agent is
+# built, at the OSS commit the release manifest pins.
+name: build-ebpf
+
+on:
+  workflow_call:
+    secrets:
+      SIBLING_READ_TOKEN:
+        description: "Read token for the private component repositories (optional for public ones)"
+        required: false
+    inputs:
+      version:
+        description: "OSS version to stamp (YYYY.M.X), named in the certificate"
+        required: true
+        type: string
+      ref:
+        description: "Commit sha in ebpfsentinel/ebpfsentinel to build"
+        required: true
+        type: string
+    outputs:
+      certificate-sha256:
+        description: "SHA-256 of the DER loader signing certificate of this run"
+        value: ${{ jobs.build-ebpf.outputs.certificate-sha256 }}
+
+permissions: {}
+
+env:
+  CARGO_TERM_COLOR: always
+  # Same pin as the component builds: xtask runs on the workspace MSRV and
+  # the eBPF objects on the dated nightly passed as `cargo +<channel>`.
+  RUSTUP_TOOLCHAIN: 1.99.0
+
+jobs:
+  build-ebpf:
+    name: Build and sign eBPF
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    outputs:
+      certificate-sha256: ${{ steps.cert.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ebpfsentinel/ebpfsentinel
+          ref: ${{ inputs.ref }}
+          path: src
+          token: ${{ secrets.SIBLING_READ_TOKEN || github.token }}
+
+      # xtask itself runs on RUSTUP_TOOLCHAIN; only the eBPF objects need nightly.
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: 1.99.0
+
+      # The eBPF nightly date is written in one place, the toolchain file beside
+      # the programs in the component checkout. Reading it here rather than
+      # naming a channel means this workflow cannot build the objects with a
+      # compiler the component tree never pinned.
+      - name: Read the pinned eBPF toolchain
+        id: ebpf-toolchain
+        run: |
+          set -eu
+          file="src/crates/ebpf-programs/rust-toolchain.toml"
+          channel="$(sed -n 's/^channel[[:space:]]*=[[:space:]]*"\(.*\)"/\1/p' "$file")"
+          if [ -z "$channel" ]; then
+            echo "::error::no channel in $file, which is the one place the eBPF nightly date is written"
+            exit 1
+          fi
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # nightly
+        with:
+          toolchain: ${{ steps.ebpf-toolchain.outputs.channel }}
+          components: rust-src
+
+      # The eBPF objects are built on the nightly the component tree pins.
+      # Record it anyway: a log that names the compiler is what a regression is
+      # bisected against, and it is also how a stale pin becomes visible.
+      - name: Record toolchains
+        env:
+          EBPF_TOOLCHAIN: ${{ steps.ebpf-toolchain.outputs.channel }}
+        run: |
+          set -eu
+          rustc "+${EBPF_TOOLCHAIN}" -Vv
+          rustc +1.99.0 -Vv
+
+      - uses: ./src/.github/actions/install-bpf-linker
+        with:
+          source-root: src
+
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler libpcap-dev
+
+      - uses: ./src/.github/actions/stamp-version
+        with:
+          version: ${{ inputs.version }}
+
+      # The key that signs this release's loaders is made here, used by the
+      # next step and shredded by the one after, whatever happened in between.
+      # It never leaves the runner and is never stored: what proves a loader
+      # came from this run is its certificate, which the images and tarballs
+      # carry and the measurements record by digest. A later release signs
+      # with a key of its own, so a stolen runner image signs nothing
+      # anyone trusts.
+      - name: Make this release's loader signing key
+        id: key
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          umask 077
+          dir="${RUNNER_TEMP}/loader-signing"
+          mkdir -p "$dir"
+          openssl req -x509 -newkey rsa:3072 -nodes -sha256 -days 3650 \
+            -subj "/O=eBPFsentinel/CN=eBPFsentinel loaders ${VERSION}" \
+            -keyout "${dir}/key.pem" -out "${dir}/cert.pem"
+          echo "dir=${dir}" >> "$GITHUB_OUTPUT"
+
+      # `EBPFSENTINEL_RELEASE_BUILD` makes the xtask refuse to sign with the
+      # committed test key, and refuse an object it cannot generate loaders
+      # for instead of shipping it unsigned.
+      - name: Build eBPF programs and sign their loaders
+        working-directory: src
+        env:
+          EBPFSENTINEL_RELEASE_BUILD: "1"
+          EBPFSENTINEL_LOADER_SIGNING_KEY: ${{ steps.key.outputs.dir }}/key.pem
+          EBPFSENTINEL_LOADER_SIGNING_CERT: ${{ steps.key.outputs.dir }}/cert.pem
+        run: |
+          set -euo pipefail
+          cargo xtask ebpf-build
+          mkdir -p ebpf-out
+          cp target/bpfel-unknown-none/release/* ebpf-out/
+          test -s ebpf-out/loader-signing.der
+          ls -la ebpf-out/
+
+      - name: Destroy the loader signing key
+        # The path, not the step output: a key step that failed half way left
+        # no output and may still have left a key.
+        if: always()
+        run: |
+          set -eu
+          KEY_DIR="${RUNNER_TEMP}/loader-signing"
+          if [ -d "${KEY_DIR}" ]; then
+            shred -u "${KEY_DIR}/key.pem" 2>/dev/null || rm -f "${KEY_DIR}/key.pem"
+            rm -rf "${KEY_DIR}"
+          fi
+
+      - name: Record the certificate digest
+        id: cert
+        working-directory: src
+        run: |
+          set -euo pipefail
+          digest="$(sha256sum ebpf-out/loader-signing.der | cut -d' ' -f1)"
+          echo "sha256=${digest}" >> "$GITHUB_OUTPUT"
+          echo "loader signing certificate sha256 ${digest}"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ebpfsentinel-ebpf-programs
+          path: src/ebpf-out/
+          retention-days: 7
