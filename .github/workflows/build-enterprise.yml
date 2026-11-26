@@ -112,6 +112,27 @@ jobs:
           sparse-checkout: dist/seccomp
           token: ${{ secrets.SIBLING_READ_TOKEN || github.token }}
 
+      # The agreements are drafted with every undecided fact marked
+      # `[TO BE COMPLETED: ...]`. A tarball carrying one is an agreement nobody
+      # can be held to, so the release refuses before it spends the build. The
+      # enterprise tree runs the same scan as a test that fails under
+      # EBPFSENTINEL_RELEASE_GUARD=1 (tests/licence_agreements.rs).
+      - name: Refuse an agreement with a blank in it
+        env:
+          EBPFSENTINEL_RELEASE_GUARD: "1"
+        run: |
+          set -euo pipefail
+          blanks=0
+          for eula in EULA.md EULA.fr.md EULA-MSSP.md EULA-MSSP.fr.md; do
+            if grep -H -n -F '[TO BE COMPLETED' "src/${eula}"; then
+              blanks=1
+            fi
+          done
+          if [ "${blanks}" -ne 0 ]; then
+            echo "::error::a licence agreement still holds a [TO BE COMPLETED] blank; fill it in the enterprise tree before releasing"
+            exit 1
+          fi
+
       # The runner ships ~14 GB free and this build compiles the workspace, ONNX
       # Runtime and the kernel programs on it. Dropping the preinstalled toolchains this build never
       # touches buys the ~25 GB that keeps it off `No space left on device`.
