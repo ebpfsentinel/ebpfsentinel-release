@@ -8,7 +8,7 @@ different audience, and a compromise of one must not forge the other.
 |---|---|---|---|
 | **Release signing** (Ed25519 + ML-DSA-65) | `measurements.json` → `measurements.signed` | "is this the artifact we published?" | `RELEASE_SIGNING_KEY_*` secrets in this repo |
 | **License signing** (Ed25519 + ML-DSA-65) | customer `.lic` files, activation keys | "is this customer entitled to run it?" | private halves offline, never in this repo or any CI secret; public halves in `policy/keys/` |
-| **Content signing** (Ed25519 + ML-DSA-65) | `content-manifest.json` → `content-manifest.sig` | "is this the content we published?" | `CONTENT_SIGNING_KEY_*` secrets in the private anchor, which is what cuts a bundle |
+| **Content signing** (Ed25519 + ML-DSA-65) | `content-manifest.json` → `content-manifest.sig` | "is this the content we published?" | `CONTENT_SIGNING_KEY_*` secrets held by the system that cuts a bundle, never in this repository |
 | **Content keyless** (no key) | the same `content-manifest.json` → `content-manifest.cosign.bundle` | "who published this content?" | nothing stored - Fulcio short-lived certs, identity pinned to the cutting workflow |
 | **cosign keyless** (no key) | images, blobs, SBOM attestations | "is this the artifact we published?" (connected sites) | nothing stored - Fulcio short-lived certs |
 | **Repository signing** (OpenPGP, Ed25519) | apt `InRelease` and `Release.gpg`, dnf `repomd.xml.asc`, every `.rpm` in the pool | "is this index the one the publisher wrote?" | `REPOSITORY_SIGNING_KEY` secret in this repo, fingerprint in the `REPOSITORY_SIGNING_FINGERPRINT` variable |
@@ -78,7 +78,7 @@ Then:
 
 1. Store the two `.key` files in the org's secret manager and an offline backup.
 2. Load them as `CONTENT_SIGNING_KEY_ED25519` and `CONTENT_SIGNING_KEY_MLDSA` in
-   `ebpfsentinel-private-release`, which is what cuts and signs a bundle. They
+   the system that cuts and signs a bundle. They
    are not loaded here: this repository publishes the public halves and signs no
    content.
 3. Commit the two `.pub` files to `policy/keys/` in this repo.
@@ -299,7 +299,7 @@ like a rotation - update `policy/verify.sh`, both admission policies, and
   or any other. They are the one pair CI must never be able to reach.
 - The content signing private keys loaded as a secret in this repository. This
   is the customer's trust anchor and it publishes the public halves; the private
-  ones live in the private anchor, which is what cuts a bundle.
+  ones live only with the system that cuts a bundle.
 - A reader treating the keyless half as the only signature, or as an optional
   extra. Dropping it leaves content nobody can trace to a workflow; relying on
   it alone leaves an enclave with nothing it can check at all.

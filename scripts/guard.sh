@@ -475,6 +475,32 @@ print("  PASS: one signed build, key shredded, enterprise reuses it, measurement
 PY
 [ $? -eq 0 ] || fail=1
 
+# ---------------------------------------------------------------------------
+echo "[14] the anchor names nothing we run only for ourselves"
+# A customer verifying a release must not learn our internal systems exist.
+# The words are built from parts so this check does not find itself.
+python3 - <<'PY2'
+import re, subprocess, sys
+words = ["private" + "-release", "private" + r"\s+anchor", "private" + r"\s+trust\s+anchor"]
+pattern = re.compile("|".join(words), re.I)
+files = subprocess.run(["git", "ls-files", "-z"], capture_output=True, text=True).stdout.split("\0")
+problems = []
+for rel in filter(None, files):
+    try:
+        text = open(rel, encoding="utf-8").read()
+    except (UnicodeDecodeError, IsADirectoryError, FileNotFoundError):
+        continue
+    for n, line in enumerate(text.splitlines(), 1):
+        if pattern.search(line):
+            problems.append(f"{rel}:{n} names a system customers never run")
+if problems:
+    for p in problems:
+        print("  FAIL:", p)
+    sys.exit(1)
+print("  PASS: no tracked file names our own release system")
+PY2
+[ $? -eq 0 ] || fail=1
+
 echo
 if [ "$fail" -eq 0 ]; then
   echo "guard: OK"
